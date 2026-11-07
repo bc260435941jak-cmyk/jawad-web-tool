@@ -127,44 +127,133 @@ function getOrGenerateCandles(symbol: string, timeframe: Timeframe, count: numbe
   return existing;
 }
 
+async function fetchWithExponentialBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 400
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (error) {
+      attempt++;
+      if (attempt > maxRetries) {
+        throw error;
+      }
+      const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 150;
+      console.warn(`Market data fetch attempt ${attempt} failed, retrying with exponential backoff in ${Math.round(delay)}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 export class MarketProviderService {
   /**
-   * Fetches real candles from active provider with fallback handling
+   * Fetches dynamic list of accessible instruments from the active market provider
+   */
+  public async getInstruments(): Promise<MarketSymbol[]> {
+    const activeProvider = db.marketProviders.find((p) => p.isActive) || db.marketProviders[0];
+
+    if (activeProvider.id === 'twelvedata' && activeProvider.apiKey) {
+      try {
+        const url = `https://api.twelvedata.com/forex_pairs?apikey=${activeProvider.apiKey}`;
+        const res = await fetch(url, { headers: { 'User-Agent': 'Obsidian-Quant-AI' } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.data && Array.isArray(data.data)) {
+            const fetched: MarketSymbol[] = data.data.slice(0, 50).map((pair: any) => {
+              const symbol = pair.symbol.includes('/') ? pair.symbol : `${pair.symbol.slice(0, 3)}/${pair.symbol.slice(3)}`;
+              return {
+                symbol,
+                name: pair.currency_group ? `${pair.currency_base} / ${pair.currency_quote}` : symbol,
+                category: 'forex',
+                baseAsset: pair.currency_base || symbol.split('/')[0],
+                quoteAsset: pair.currency_quote || symbol.split('/')[1] || 'USD',
+                pipSize: symbol.includes('JPY') ? 0.01 : 0.0001,
+                decimals: symbol.includes('JPY') ? 3 : 5,
+                isOpen: true,
+              };
+            });
+            if (fetched.length > 0) return fetched;
+          }
+        }
+      } catch (err) {
+        console.warn('Twelve Data forex_pairs fetch failed, using default symbol set:', err);
+      }
+    }
+
+    if (activeProvider.id === 'finnhub' && activeProvider.apiKey) {
+      try {
+        const url = `https://finnhub.io/api/v1/forex/symbol?exchange=oanda&token=${activeProvider.apiKey}`;
+        const res = await fetch(url, { headers: { 'User-Agent': 'Obsidian-Quant-AI' } });
+        if (res.ok) {
+          const raw = await res.json();
+          if (Array.isArray(raw)) {
+            const fetched: MarketSymbol[] = raw.slice(0, 50).map((item: any) => {
+              const symbol = item.displaySymbol || item.symbol.replace('OANDA:', '').replace('_', '/');
+              return {
+                symbol,
+                name: item.description || symbol,
+                category: 'forex',
+                baseAsset: symbol.split('/')[0] || 'FX',
+                quoteAsset: symbol.split('/')[1] || 'USD',
+                pipSize: symbol.includes('JPY') ? 0.01 : 0.0001,
+                decimals: symbol.includes('JPY') ? 3 : 5,
+                isOpen: true,
+              };
+            });
+            if (fetched.length > 0) return fetched;
+          }
+        }
+      } catch (err) {
+        console.warn('Finnhub forex symbol fetch failed, using default symbol set:', err);
+      }
+    }
+
+    return SUPPORTED_SYMBOLS;
+  }
+
+  /**
+   * Fetches real candles from active provider with exponential backoff retry and fallback handling
    */
   public async getCandles(symbol: string, timeframe: Timeframe, limit: number = 60): Promise<{ candles: Candle[]; source: string; status: string }> {
     const activeProvider = db.marketProviders.find((p) => p.isActive) || db.marketProviders[0];
     const sourceName = activeProvider?.name || 'Global FX/Crypto Public Feed';
 
-    // If Twelve Data is active and has an API key configured, attempt to fetch from Twelve Data
+    // If Twelve Data is active and has an API key configured, attempt to fetch from Twelve Data with exponential backoff
     if (activeProvider.id === 'twelvedata' && activeProvider.apiKey) {
       try {
         const interval = timeframe === '1m' ? '1min' : timeframe === '5m' ? '5min' : timeframe === '15m' ? '15min' : timeframe === '1h' ? '1h' : timeframe === '4h' ? '4h' : '1day';
         const cleanSymbol = symbol.replace('/', '');
         const url = `https://api.twelvedata.com/time_series?symbol=${cleanSymbol}&interval=${interval}&outputsize=${limit}&apikey=${activeProvider.apiKey}`;
 
-        const res = await fetch(url, { headers: { 'User-Agent': 'Obsidian-Quant-AI' } });
-        if (res.ok) {
+        const candles = await fetchWithExponentialBackoff(async () => {
+          const res = await fetch(url, { headers: { 'User-Agent': 'Obsidian-Quant-AI' } });
+          if (!res.ok) throw new Error(`HTTP error status: ${res.status}`);
           const data = await res.json();
-          if (data.values && Array.isArray(data.values)) {
-            const candles: Candle[] = data.values.map((v: any) => ({
-              timestamp: new Date(v.datetime).getTime(),
-              open: parseFloat(v.open),
-              high: parseFloat(v.high),
-              low: parseFloat(v.low),
-              close: parseFloat(v.close),
-              volume: v.volume ? parseFloat(v.volume) : null,
-              source: 'Twelve Data',
-              symbol,
-            })).reverse();
-            return { candles, source: 'Twelve Data', status: 'LIVE' };
-          }
-        }
+          if (data.code && data.code >= 400) throw new Error(`Twelve Data API error: ${data.message || 'Unknown error'}`);
+          if (!data.values || !Array.isArray(data.values)) throw new Error('Invalid Twelve Data response format');
+          
+          return data.values.map((v: any) => ({
+            timestamp: new Date(v.datetime).getTime(),
+            open: parseFloat(v.open),
+            high: parseFloat(v.high),
+            low: parseFloat(v.low),
+            close: parseFloat(v.close),
+            volume: v.volume ? parseFloat(v.volume) : null,
+            source: 'Twelve Data',
+            symbol,
+          })).reverse() as Candle[];
+        }, 3, 500);
+
+        return { candles, source: 'Twelve Data', status: 'LIVE' };
       } catch (err) {
-        console.warn('Twelve Data request failed, falling back to public feed:', err);
+        console.warn('Twelve Data request failed after exponential backoff retries, falling back:', err);
       }
     }
 
-    // For public feed or fallback, fetch Binance public data if crypto/forex cross
+    // For public feed or fallback, fetch Binance public data if crypto/forex cross with exponential backoff
     if (symbol.includes('BTC') || symbol.includes('ETH')) {
       try {
         const binancePair = symbol.replace('/', '').replace('USD', 'USDT');
@@ -172,25 +261,27 @@ export class MarketProviderService {
         const interval = intervalMap[timeframe] || '5m';
         const url = `https://api.binance.com/api/v3/klines?symbol=${binancePair}&interval=${interval}&limit=${limit}`;
 
-        const res = await fetch(url, { headers: { 'User-Agent': 'Obsidian-Quant-AI' } });
-        if (res.ok) {
+        const candles = await fetchWithExponentialBackoff(async () => {
+          const res = await fetch(url, { headers: { 'User-Agent': 'Obsidian-Quant-AI' } });
+          if (!res.ok) throw new Error(`Binance HTTP status ${res.status}`);
           const raw = await res.json();
-          if (Array.isArray(raw)) {
-            const candles: Candle[] = raw.map((k: any) => ({
-              timestamp: k[0],
-              open: parseFloat(k[1]),
-              high: parseFloat(k[2]),
-              low: parseFloat(k[3]),
-              close: parseFloat(k[4]),
-              volume: parseFloat(k[5]),
-              source: 'Binance Public Stream',
-              symbol,
-            }));
-            return { candles, source: 'Binance Public Stream', status: 'LIVE' };
-          }
-        }
+          if (!Array.isArray(raw)) throw new Error('Invalid Binance response format');
+
+          return raw.map((k: any) => ({
+            timestamp: k[0],
+            open: parseFloat(k[1]),
+            high: parseFloat(k[2]),
+            low: parseFloat(k[3]),
+            close: parseFloat(k[4]),
+            volume: parseFloat(k[5]),
+            source: 'Binance Public Stream',
+            symbol,
+          })) as Candle[];
+        }, 3, 400);
+
+        return { candles, source: 'Binance Public Stream', status: 'LIVE' };
       } catch (err) {
-        console.warn('Binance public klines failed, using continuous provider feed:', err);
+        console.warn('Binance public klines failed after exponential backoff retries, using continuous feed:', err);
       }
     }
 

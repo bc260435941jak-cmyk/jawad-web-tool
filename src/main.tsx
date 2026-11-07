@@ -11,4 +11,10 @@ if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
   });
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+import { AuthProvider } from './context/AuthContext.js';
+
+createRoot(document.getElementById('root')!).render(
+  <AuthProvider>
+    <App />
+  </AuthProvider>
+);

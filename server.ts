@@ -62,8 +62,13 @@ app.get('/api/health', (req: Request, res: Response) => {
 // -----------------------------------------------------------------------------
 // Market Data Endpoints
 // -----------------------------------------------------------------------------
-app.get('/api/market/symbols', (req: Request, res: Response) => {
-  return sendSuccess(res, SUPPORTED_SYMBOLS);
+app.get('/api/market/symbols', async (req: Request, res: Response) => {
+  try {
+    const symbols = await marketService.getInstruments();
+    return sendSuccess(res, symbols);
+  } catch (err: any) {
+    return sendSuccess(res, SUPPORTED_SYMBOLS);
+  }
 });
 
 app.get('/api/market/candles', async (req: Request, res: Response) => {

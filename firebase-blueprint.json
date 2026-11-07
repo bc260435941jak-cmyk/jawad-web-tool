@@ -1,0 +1,111 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User profile information and registration data",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth user ID" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "User avatar URL" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account registration timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last profile update timestamp" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "UserCredentials": {
+      "title": "User Encrypted API Credentials",
+      "description": "User private encrypted market data and AI provider API keys",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Owner user ID" },
+        "encryptedMarketKeys": { "type": "object", "description": "Map of provider ID to encrypted API key string" },
+        "encryptedAiKeys": { "type": "object", "description": "Map of AI provider ID to encrypted API key string" },
+        "activeMarketProvider": { "type": "string", "description": "Selected active market data provider ID" },
+        "activeAiProvider": { "type": "string", "description": "Selected active AI provider ID" },
+        "activeAiModel": { "type": "string", "description": "Selected active AI model ID" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Credentials last updated timestamp" }
+      },
+      "required": ["uid", "updatedAt"]
+    },
+    "UserPreferences": {
+      "title": "User Trading Preferences",
+      "description": "User custom risk management settings and layout preferences",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Owner user ID" },
+        "defaultTimeframe": { "type": "string", "description": "Default candlestick timeframe" },
+        "defaultSymbol": { "type": "string", "description": "Default selected symbol" },
+        "watchlist": { "type": "array", "description": "List of pinned favorite symbol strings" },
+        "maxStake": { "type": "number", "description": "Maximum stake limit in USD" },
+        "dailyLossLimit": { "type": "number", "description": "Daily loss protection limit" },
+        "maxOpenPositions": { "type": "number", "description": "Max concurrent open positions" },
+        "slippagePips": { "type": "number", "description": "Default slippage tolerance in pips" },
+        "enableHighThinking": { "type": "boolean", "description": "Enable high thinking mode by default" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Preferences last updated timestamp" }
+      },
+      "required": ["uid", "updatedAt"]
+    },
+    "UserSignalRecord": {
+      "title": "User Saved AI Signal",
+      "description": "Saved or generated quantitative AI signal record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Signal record unique ID" },
+        "uid": { "type": "string", "description": "Owner user ID" },
+        "symbol": { "type": "string", "description": "Market symbol" },
+        "timeframe": { "type": "string", "description": "Candle timeframe" },
+        "mode": { "type": "string", "description": "Trading mode: binary or forex" },
+        "direction": { "type": "string", "description": "Signal direction: BUY, SELL, or WAIT" },
+        "status": { "type": "string", "description": "Signal status: STRONG, CONDITIONAL, WAIT, REJECTED" },
+        "confidence": { "type": "number", "description": "Model confidence percentage" },
+        "entryPrice": { "type": "number", "description": "Execution entry price" },
+        "stopLoss": { "type": "number", "description": "Forex stop loss price" },
+        "takeProfit": { "type": "number", "description": "Forex take profit price" },
+        "expiryMinutes": { "type": "number", "description": "Binary expiry duration in minutes" },
+        "reasoning": { "type": "array", "description": "Quantitative reasoning items" },
+        "generated_at": { "type": "number", "description": "Generation timestamp in epoch ms" },
+        "model_id": { "type": "string", "description": "Model ID used for signal" }
+      },
+      "required": ["id", "uid", "symbol", "timeframe", "direction", "confidence", "entryPrice", "generated_at"]
+    },
+    "UserPaperAccount": {
+      "title": "User Paper Trading Account State",
+      "description": "User persistent paper trading balance, equity, and positions history",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Owner user ID" },
+        "balance": { "type": "number", "description": "Paper balance in USD" },
+        "equity": { "type": "number", "description": "Paper equity in USD" },
+        "totalTrades": { "type": "number", "description": "Total executed trade count" },
+        "winningTrades": { "type": "number", "description": "Winning trade count" },
+        "losingTrades": { "type": "number", "description": "Losing trade count" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Account last updated timestamp" }
+      },
+      "required": ["uid", "balance", "equity", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Private user profiles"
+    },
+    "/users/{userId}/credentials/apiKeys": {
+      "schema": "UserCredentials",
+      "description": "User private encrypted API keys"
+    },
+    "/users/{userId}/preferences/trading": {
+      "schema": "UserPreferences",
+      "description": "User trading settings and watchlists"
+    },
+    "/users/{userId}/signals/{signalId}": {
+      "schema": "UserSignalRecord",
+      "description": "User generated or bookmarked AI signals"
+    },
+    "/users/{userId}/paper/account": {
+      "schema": "UserPaperAccount",
+      "description": "User paper trading account state"
+    }
+  }
+}

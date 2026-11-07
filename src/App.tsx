@@ -16,6 +16,8 @@ import { ProviderManager } from './components/providers/ProviderManager.js';
 import { SettingsWorkspace } from './components/settings/SettingsWorkspace.js';
 import { APIManagerModal } from './components/modals/APIManagerModal.js';
 import { NotificationCenter } from './components/modals/NotificationCenter.js';
+import { useAuth } from './context/AuthContext.js';
+import { AuthModal } from './components/auth/AuthModal.js';
 import {
   Activity,
   Zap,
@@ -30,13 +32,25 @@ import {
   PlusCircle,
   Menu,
   X,
+  User as UserIcon,
 } from 'lucide-react';
 
 export default function App() {
+  const { user, getAuthToken, saveStatus } = useAuth();
+
   // Navigation & Workspace State
   const [activeTab, setActiveTab] = useState<'binary' | 'forex' | 'backtest' | 'intel' | 'providers' | 'settings'>('binary');
   const [isApiModalOpen, setIsApiModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const syncToken = async () => {
+      const token = await getAuthToken();
+      api.setAuthToken(token);
+    };
+    syncToken();
+  }, [user, getAuthToken]);
 
   // Market & Trading State
   const [symbols, setSymbols] = useState<MarketSymbol[]>([]);
@@ -220,21 +234,20 @@ export default function App() {
               </span>
             </div>
 
-            {/* Add Custom API Server Button */}
+            {/* User Account / Cloud Login Button */}
             <button
               type="button"
-              onClick={() => setIsApiModalOpen(true)}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-[#101722] hover:bg-[#1E293B] border border-[#00F3FF]/30 text-[#00F3FF] hover:text-[#00FF88] rounded-lg text-xs font-bold transition-all shadow-sm"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#101722] hover:bg-[#1E293B] border border-[#00F3FF]/40 text-[#00F3FF] rounded-lg text-xs font-bold transition-all shadow-sm"
+              title="Cloud Account & Key Vault"
             >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span>Custom Feed</span>
+              <UserIcon className="w-3.5 h-3.5" />
+              <span className="max-w-[110px] truncate hidden sm:inline font-mono">
+                {user ? user.email?.split('@')[0] : 'Sign In'}
+              </span>
+              {saveStatus === 'saving' && <span className="w-2 h-2 rounded-full bg-[#F59E0B] animate-ping" />}
+              {saveStatus === 'saved' && <span className="w-2 h-2 rounded-full bg-[#00FF88]" />}
             </button>
-
-            {/* UTC Clock */}
-            <div className="hidden xl:flex items-center gap-1 text-[11px] font-mono-numbers text-[#8B98AA] bg-[#0B1018] px-2.5 py-1.5 rounded border border-[#1E293B]">
-              <Clock className="w-3.5 h-3.5 text-[#00F3FF]" />
-              <span>{utcTime}</span>
-            </div>
 
             {/* Notification Center & Web Notifications Bell */}
             <NotificationCenter />
@@ -398,6 +411,7 @@ export default function App() {
                     setActiveTab(m);
                   }}
                   onExecutePaperTrade={handleExecutePaperTradeFromSignal}
+                  symbols={symbols}
                 />
               </div>
             </div>
@@ -436,6 +450,11 @@ export default function App() {
           fetchQuotes();
         }}
       />
+
+      {/* ------------------------------------------------------------------ */}
+      {/* AUTHENTICATION & CLOUD ACCOUNT MODAL                               */}
+      {/* ------------------------------------------------------------------ */}
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
       {/* ------------------------------------------------------------------ */}
       {/* FOOTER & STATUS BAR                                                */}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AISignalResult, TradingMode } from '../../types/ai.js';
+import { MarketSymbol } from '../../types/market.js';
 import { api } from '../../services/apiClient.js';
 import { notifications } from '../../utils/notifications.js';
 import {
@@ -24,6 +25,7 @@ interface Props {
   mode: TradingMode;
   onModeChange: (mode: TradingMode) => void;
   onExecutePaperTrade?: (signal: AISignalResult) => void;
+  symbols?: MarketSymbol[];
 }
 
 export const SignalBrain: React.FC<Props> = ({
@@ -34,6 +36,7 @@ export const SignalBrain: React.FC<Props> = ({
   mode,
   onModeChange,
   onExecutePaperTrade,
+  symbols,
 }) => {
   const [loading, setLoading] = useState(false);
   const [enableThinking, setEnableThinking] = useState(true);
@@ -137,20 +140,26 @@ export const SignalBrain: React.FC<Props> = ({
               onChange={(e) => onSymbolChange(e.target.value)}
               className="w-full bg-[#101722] border border-[#1E293B] rounded-lg px-3 py-2 text-sm text-[#E8EDF5] font-semibold focus:outline-none focus:border-[#00F3FF] transition-colors"
             >
-              <optgroup label="Forex Major & Minor">
-                <option value="EUR/USD">EUR/USD (Euro / US Dollar)</option>
-                <option value="GBP/USD">GBP/USD (British Pound / USD)</option>
-                <option value="USD/JPY">USD/JPY (US Dollar / Yen)</option>
-                <option value="USD/CHF">USD/CHF (US Dollar / Swiss Franc)</option>
-                <option value="AUD/USD">AUD/USD (Aussie / US Dollar)</option>
-                <option value="USD/CAD">USD/CAD (US Dollar / CAD)</option>
-                <option value="NZD/USD">NZD/USD (Kiwi / US Dollar)</option>
-              </optgroup>
-              <optgroup label="Precious Metals & Crypto">
-                <option value="XAU/USD">XAU/USD (Gold Spot)</option>
-                <option value="BTC/USD">BTC/USD (Bitcoin)</option>
-                <option value="ETH/USD">ETH/USD (Ethereum)</option>
-              </optgroup>
+              {symbols && symbols.length > 0 ? (
+                symbols.map((s) => (
+                  <option key={s.symbol} value={s.symbol}>
+                    {s.symbol} ({s.name})
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="EUR/USD">EUR/USD (Euro / US Dollar)</option>
+                  <option value="GBP/USD">GBP/USD (British Pound / USD)</option>
+                  <option value="USD/JPY">USD/JPY (US Dollar / Yen)</option>
+                  <option value="USD/CHF">USD/CHF (US Dollar / Swiss Franc)</option>
+                  <option value="AUD/USD">AUD/USD (Aussie / US Dollar)</option>
+                  <option value="USD/CAD">USD/CAD (US Dollar / CAD)</option>
+                  <option value="NZD/USD">NZD/USD (Kiwi / US Dollar)</option>
+                  <option value="XAU/USD">XAU/USD (Gold Spot)</option>
+                  <option value="BTC/USD">BTC/USD (Bitcoin)</option>
+                  <option value="ETH/USD">ETH/USD (Ethereum)</option>
+                </>
+              )}
             </select>
           </div>
 

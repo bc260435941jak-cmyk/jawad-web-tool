@@ -5,13 +5,25 @@ import { BacktestResult } from '../../server/backtest/backtestEngine.js';
 import { EconomicEvent, MarketNewsItem, CurrencyStrength } from '../../server/intel/marketIntel.js';
 
 class ApiClient {
+  private authToken: string | null = null;
+
+  public setAuthToken(token: string | null) {
+    this.authToken = token;
+  }
+
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options?.headers as Record<string, string> || {}),
+    };
+
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`;
+    }
+
     const res = await fetch(endpoint, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options?.headers || {}),
-      },
+      headers,
     });
 
     const json = await res.json();
@@ -40,10 +52,115 @@ class ApiClient {
     return this.request<MarketSymbol[]>('/api/market/symbols');
   }
 
+  /**
+   * Fetches candle data with exponential backoff retry and robust OHLC validation
+   */
+  public async fetchCandleData(
+    symbol: string,
+    timeframe: string,
+    limit: number = 60,
+    maxRetries: number = 3
+  ): Promise<{ candles: Candle[]; source: string; status: string }> {
+    let attempt = 0;
+    let lastError: any = null;
+
+    while (attempt <= maxRetries) {
+      try {
+        const response = await this.request<{ candles: Candle[]; source: string; status: string }>(
+          `/api/market/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`
+        );
+
+        // Validation layer: verify OHLC data presence and integrity
+        if (!response || !Array.isArray(response.candles)) {
+          throw new Error('Invalid response structure: missing candles array');
+        }
+
+        const validCandles = response.candles.filter((c) => {
+          const hasOHLC =
+            typeof c.timestamp === 'number' &&
+            !isNaN(c.timestamp) &&
+            typeof c.open === 'number' &&
+            !isNaN(c.open) &&
+            typeof c.high === 'number' &&
+            !isNaN(c.high) &&
+            typeof c.low === 'number' &&
+            !isNaN(c.low) &&
+            typeof c.close === 'number' &&
+            !isNaN(c.close);
+
+          if (!hasOHLC) return false;
+
+          // Check logical OHLC sanity
+          const isSanityValid =
+            c.high >= c.low &&
+            c.high >= Math.min(c.open, c.close) - 0.00001 &&
+            c.low <= Math.max(c.open, c.close) + 0.00001;
+
+          return isSanityValid;
+        });
+
+        if (validCandles.length === 0 && response.candles.length > 0) {
+          throw new Error(`OHLC validation failed: 0 valid candles out of ${response.candles.length} returned`);
+        }
+
+        return {
+          ...response,
+          candles: validCandles,
+        };
+      } catch (err: any) {
+        lastError = err;
+        attempt++;
+        if (attempt <= maxRetries) {
+          const delay = 300 * Math.pow(2, attempt - 1) + Math.random() * 100;
+          console.warn(`[apiClient] fetchCandleData attempt ${attempt} failed (${err.message}). Retrying in ${Math.round(delay)}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    console.error(`[apiClient] fetchCandleData failed after ${maxRetries} retries:`, lastError);
+    throw lastError || new Error('Failed to fetch valid candle data');
+  }
+
   public async getCandles(symbol: string, timeframe: string, limit: number = 60): Promise<{ candles: Candle[]; source: string; status: string }> {
-    return this.request<{ candles: Candle[]; source: string; status: string }>(
-      `/api/market/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`
-    );
+    return this.fetchCandleData(symbol, timeframe, limit);
+  }
+
+  /**
+   * Diagnostic helper to retrieve raw API responses from the market data provider
+   */
+  public async getRawMarketResponse(symbol: string, timeframe: string, limit: number = 60): Promise<{
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+    rawBody: any;
+    timestamp: number;
+    latencyMs: number;
+  }> {
+    const url = `/api/market/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
+    const startTime = Date.now();
+    const res = await fetch(url);
+    const latencyMs = Date.now() - startTime;
+    const headersObj: Record<string, string> = {};
+    res.headers.forEach((val, key) => {
+      headersObj[key] = val;
+    });
+
+    let rawBody: any;
+    try {
+      rawBody = await res.json();
+    } catch (e) {
+      rawBody = await res.text();
+    }
+
+    return {
+      status: res.status,
+      statusText: res.statusText,
+      headers: headersObj,
+      rawBody,
+      timestamp: Date.now(),
+      latencyMs,
+    };
   }
 
   public async getQuote(symbol: string): Promise<MarketTick> {

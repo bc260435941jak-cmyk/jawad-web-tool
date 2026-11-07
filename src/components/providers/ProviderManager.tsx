@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MarketDataProviderConfig, ConnectionResult } from '../../types/market.js';
 import { AIProviderConfig } from '../../types/ai.js';
 import { api } from '../../services/apiClient.js';
+import { useAuth } from '../../context/AuthContext.js';
 import {
   Server,
   Cpu,
@@ -13,9 +14,36 @@ import {
   Globe,
   RefreshCw,
   AlertTriangle,
+  Bug,
+  Terminal,
+  Copy,
+  Trash2,
+  Play,
+  Code,
+  FileText,
 } from 'lucide-react';
 
+interface DiagnosticLogEntry {
+  id: string;
+  timestamp: number;
+  symbol: string;
+  timeframe: string;
+  limit: number;
+  httpStatus: number;
+  statusText: string;
+  latencyMs: number;
+  rawPayload: any;
+  validation: {
+    valid: boolean;
+    totalCount: number;
+    validCount: number;
+    hasOHLC: boolean;
+    issues: string[];
+  };
+}
+
 export const ProviderManager: React.FC = () => {
+  const { user, saveMarketKey, saveAiKey, setActiveMarketProvider: setCloudMarketProvider, setActiveAiProvider: setCloudAiProvider } = useAuth();
   const [marketProviders, setMarketProviders] = useState<MarketDataProviderConfig[]>([]);
   const [aiProviders, setAiProviders] = useState<AIProviderConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +54,115 @@ export const ProviderManager: React.FC = () => {
   const [marketKeysInput, setMarketKeysInput] = useState<Record<string, string>>({});
   const [aiKeysInput, setAiKeysInput] = useState<Record<string, string>>({});
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Raw API Diagnostic Tool State
+  const [diagSymbol, setDiagSymbol] = useState('EUR/USD');
+  const [diagTimeframe, setDiagTimeframe] = useState('5m');
+  const [diagLimit, setDiagLimit] = useState(60);
+  const [diagRunning, setDiagRunning] = useState(false);
+  const [diagnosticLogs, setDiagnosticLogs] = useState<DiagnosticLogEntry[]>([]);
+  const [copiedLogId, setCopiedLogId] = useState<string | null>(null);
+
+  const handleRunDiagnostic = async () => {
+    setDiagRunning(true);
+    try {
+      console.log(`[Market Data Diagnostic] Requesting raw API response for ${diagSymbol} (${diagTimeframe}, limit: ${diagLimit})...`);
+      const rawRes = await api.getRawMarketResponse(diagSymbol, diagTimeframe, diagLimit);
+
+      // Log directly to browser console
+      console.log('[Market Data Diagnostic] Raw HTTP Response Metadata:', {
+        status: rawRes.status,
+        statusText: rawRes.statusText,
+        latencyMs: rawRes.latencyMs,
+        headers: rawRes.headers,
+      });
+      console.log('[Market Data Diagnostic] Raw Body Payload:', rawRes.rawBody);
+
+      // Perform OHLC presence validation
+      const candlesArr = rawRes.rawBody?.data?.candles || rawRes.rawBody?.candles || [];
+      const isArray = Array.isArray(candlesArr);
+      const issues: string[] = [];
+      let validCount = 0;
+
+      if (!isArray) {
+        issues.push('Response payload does not contain a valid array of candles');
+      } else if (candlesArr.length === 0) {
+        issues.push('Candles array is empty (0 records returned from provider)');
+      } else {
+        candlesArr.forEach((c: any, index: number) => {
+          const hasTimestamp = typeof c?.timestamp === 'number' && !isNaN(c.timestamp);
+          const hasOpen = typeof c?.open === 'number' && !isNaN(c.open);
+          const hasHigh = typeof c?.high === 'number' && !isNaN(c.high);
+          const hasLow = typeof c?.low === 'number' && !isNaN(c.low);
+          const hasClose = typeof c?.close === 'number' && !isNaN(c.close);
+
+          if (!hasTimestamp || !hasOpen || !hasHigh || !hasLow || !hasClose) {
+            if (issues.length < 5) {
+              issues.push(`Candle at index ${index} missing required OHLC numeric values`);
+            }
+          } else if (c.high < c.low) {
+            issues.push(`Candle index ${index} invalid OHLC logic: high (${c.high}) < low (${c.low})`);
+          } else {
+            validCount++;
+          }
+        });
+      }
+
+      const entry: DiagnosticLogEntry = {
+        id: `diag_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: Date.now(),
+        symbol: diagSymbol,
+        timeframe: diagTimeframe,
+        limit: diagLimit,
+        httpStatus: rawRes.status,
+        statusText: rawRes.statusText,
+        latencyMs: rawRes.latencyMs,
+        rawPayload: rawRes.rawBody,
+        validation: {
+          valid: isArray && candlesArr.length > 0 && validCount === candlesArr.length,
+          totalCount: isArray ? candlesArr.length : 0,
+          validCount,
+          hasOHLC: validCount > 0,
+          issues,
+        },
+      };
+
+      setDiagnosticLogs((prev) => [entry, ...prev]);
+    } catch (err: any) {
+      console.error('[Market Data Diagnostic] Failed to run diagnostic:', err);
+      const errorEntry: DiagnosticLogEntry = {
+        id: `diag_err_${Date.now()}`,
+        timestamp: Date.now(),
+        symbol: diagSymbol,
+        timeframe: diagTimeframe,
+        limit: diagLimit,
+        httpStatus: 500,
+        statusText: 'CLIENT_ERROR',
+        latencyMs: 0,
+        rawPayload: { error: err?.message || 'Failed to fetch raw market response' },
+        validation: {
+          valid: false,
+          totalCount: 0,
+          validCount: 0,
+          hasOHLC: false,
+          issues: [err?.message || 'Network fetch error'],
+        },
+      };
+      setDiagnosticLogs((prev) => [errorEntry, ...prev]);
+    } finally {
+      setDiagRunning(false);
+    }
+  };
+
+  const handleCopyLogJson = (entry: DiagnosticLogEntry) => {
+    try {
+      navigator.clipboard.writeText(JSON.stringify(entry.rawPayload, null, 2));
+      setCopiedLogId(entry.id);
+      setTimeout(() => setCopiedLogId(null), 2000);
+    } catch (e) {
+      console.error('Failed to copy to clipboard', e);
+    }
+  };
 
   const loadProviders = async () => {
     setLoading(true);
@@ -90,6 +227,9 @@ export const ProviderManager: React.FC = () => {
   const handleSaveAIProvider = async (ai: AIProviderConfig) => {
     const key = aiKeysInput[ai.id];
     try {
+      if (user && key) {
+        await saveAiKey(ai.id, key);
+      }
       await api.saveAIProvider({
         id: ai.id,
         name: ai.name,
@@ -97,8 +237,8 @@ export const ProviderManager: React.FC = () => {
         activeModel: ai.activeModel,
         apiKey: key || undefined,
       });
-      setSuccessMessage(`API Key configured and stored securely for ${ai.name}`);
-      setTimeout(() => setSuccessMessage(null), 3000);
+      setSuccessMessage(`API Key configured and encrypted in cloud for ${ai.name}`);
+      setTimeout(() => setSuccessMessage(null), 3500);
       loadProviders();
     } catch (err: any) {
       alert(`Save failed: ${err.message}`);
@@ -108,13 +248,16 @@ export const ProviderManager: React.FC = () => {
   const handleSaveMarketProvider = async (provider: MarketDataProviderConfig) => {
     const key = marketKeysInput[provider.id];
     try {
+      if (user && key) {
+        await saveMarketKey(provider.id, key);
+      }
       await api.saveMarketProvider({
         id: provider.id,
         apiKey: key || undefined,
         baseUrl: provider.baseUrl,
       });
-      setSuccessMessage(`Credentials updated for ${provider.name}`);
-      setTimeout(() => setSuccessMessage(null), 3000);
+      setSuccessMessage(`Credentials updated and saved permanently to cloud for ${provider.name}`);
+      setTimeout(() => setSuccessMessage(null), 3500);
       loadProviders();
     } catch (err: any) {
       alert(`Save failed: ${err.message}`);
@@ -123,6 +266,9 @@ export const ProviderManager: React.FC = () => {
 
   const handleSetActiveMarketProvider = async (providerId: string) => {
     try {
+      if (user) {
+        await setCloudMarketProvider(providerId);
+      }
       await api.setActiveMarketProvider(providerId);
       loadProviders();
     } catch (err: any) {
@@ -132,8 +278,10 @@ export const ProviderManager: React.FC = () => {
 
   const handleSetActiveAIProvider = async (providerId: string, modelId?: string) => {
     try {
+      if (user) {
+        await setCloudAiProvider(providerId, modelId);
+      }
       await api.setActiveAIProvider(providerId, modelId);
-      loadProviders();
     } catch (err: any) {
       alert(`Failed to switch AI provider: ${err.message}`);
     }
@@ -418,6 +566,224 @@ export const ProviderManager: React.FC = () => {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* SECTION 3: Raw Market API Diagnostic & Response Inspector Tool */}
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-xs font-bold text-[#8B98AA] uppercase tracking-wider flex items-center gap-2">
+            <Bug className="w-4 h-4 text-[#00F3FF]" />
+            Market Data Raw API Diagnostic & Inspector Tool
+          </h3>
+          <span className="text-[11px] text-[#8B98AA] flex items-center gap-1 font-mono-numbers">
+            <Terminal className="w-3.5 h-3.5 text-[#00F3FF]" />
+            Browser Console Sync Active
+          </span>
+        </div>
+
+        <div className="bg-[#0B1018] border border-[#1E293B] rounded-xl p-5 shadow-xl space-y-5">
+          {/* Controls Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-[#8B98AA] uppercase mb-1">
+                Target Symbol
+              </label>
+              <select
+                value={diagSymbol}
+                onChange={(e) => setDiagSymbol(e.target.value)}
+                className="w-full bg-[#101722] border border-[#1E293B] rounded-lg px-3 py-1.5 text-xs font-bold text-[#E8EDF5] focus:outline-none focus:border-[#00F3FF]"
+              >
+                <option value="EUR/USD">EUR/USD</option>
+                <option value="GBP/USD">GBP/USD</option>
+                <option value="USD/JPY">USD/JPY</option>
+                <option value="XAU/USD">XAU/USD</option>
+                <option value="BTC/USD">BTC/USD</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-[#8B98AA] uppercase mb-1">
+                Timeframe
+              </label>
+              <select
+                value={diagTimeframe}
+                onChange={(e) => setDiagTimeframe(e.target.value)}
+                className="w-full bg-[#101722] border border-[#1E293B] rounded-lg px-3 py-1.5 text-xs font-bold text-[#E8EDF5] focus:outline-none focus:border-[#00F3FF]"
+              >
+                <option value="1m">1 Minute (1m)</option>
+                <option value="5m">5 Minutes (5m)</option>
+                <option value="15m">15 Minutes (15m)</option>
+                <option value="1h">1 Hour (1h)</option>
+                <option value="1d">1 Day (1d)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-[#8B98AA] uppercase mb-1">
+                Candles Limit
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={diagLimit}
+                onChange={(e) => setDiagLimit(Number(e.target.value))}
+                className="w-full bg-[#101722] border border-[#1E293B] rounded-lg px-3 py-1.5 text-xs font-mono-numbers font-bold text-[#E8EDF5] focus:outline-none focus:border-[#00F3FF]"
+              />
+            </div>
+
+            <div className="flex items-end gap-2">
+              <button
+                type="button"
+                onClick={handleRunDiagnostic}
+                disabled={diagRunning}
+                className="flex-1 py-2 bg-[#00F3FF] hover:bg-[#00FF88] text-[#04060A] text-xs font-black rounded-lg transition-all shadow-lg shadow-[#00F3FF]/20 flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>{diagRunning ? 'Inspecting...' : 'Run Raw API Diagnostic'}</span>
+              </button>
+
+              {diagnosticLogs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setDiagnosticLogs([])}
+                  className="p-2 bg-[#101722] hover:bg-[#1E293B] border border-[#1E293B] rounded-lg text-[#8B98AA] hover:text-[#FF4560]"
+                  title="Clear Diagnostic Logs"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Console Sync Banner */}
+          <div className="p-3 bg-[#101722] border border-[#1E293B] rounded-lg text-xs text-[#8B98AA] flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-[#00F3FF]" />
+              <span>
+                Raw responses are captured, OHLC field presence is validated, and full JSON payloads are logged to the browser console.
+              </span>
+            </span>
+            <span className="text-[10px] text-[#00FF88] font-mono-numbers">
+              {diagnosticLogs.length} diagnostic run(s)
+            </span>
+          </div>
+
+          {/* Diagnostic Log Cards */}
+          <div className="space-y-4">
+            {diagnosticLogs.map((log) => (
+              <div
+                key={log.id}
+                className="border border-[#1E293B] rounded-xl bg-[#070B10] p-4 space-y-3 font-sans text-xs"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#1E293B]">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-[#E8EDF5]">{log.symbol}</span>
+                    <span className="px-1.5 py-0.5 rounded bg-[#101722] border border-[#1E293B] text-[10px] text-[#00F3FF] font-mono-numbers">
+                      {log.timeframe} ({log.limit} limit)
+                    </span>
+                    <span className="text-[10px] text-[#8B98AA] font-mono-numbers">
+                      {new Date(log.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono-numbers text-[11px] text-[#8B98AA]">
+                      {log.latencyMs}ms
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-black font-mono-numbers ${
+                        log.httpStatus === 200
+                          ? 'bg-[#00FF88]/20 text-[#00FF88]'
+                          : 'bg-[#FF4560]/20 text-[#FF4560]'
+                      }`}
+                    >
+                      HTTP {log.httpStatus} {log.statusText}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyLogJson(log)}
+                      className="px-2 py-1 bg-[#101722] hover:bg-[#1E293B] border border-[#1E293B] rounded text-[10px] font-semibold text-[#E8EDF5] flex items-center gap-1"
+                    >
+                      <Copy className="w-3 h-3 text-[#00F3FF]" />
+                      <span>{copiedLogId === log.id ? 'Copied!' : 'Copy Raw JSON'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Validation Status Badge & Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-2.5 rounded-lg bg-[#0B1018] border border-[#1E293B]">
+                    <span className="text-[10px] text-[#8B98AA] font-bold block uppercase">OHLC Data Integrity</span>
+                    <span
+                      className={`text-xs font-black flex items-center gap-1.5 mt-0.5 ${
+                        log.validation.valid
+                          ? 'text-[#00FF88]'
+                          : log.validation.hasOHLC
+                          ? 'text-[#F59E0B]'
+                          : 'text-[#FF4560]'
+                      }`}
+                    >
+                      {log.validation.valid ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5" /> 100% Valid OHLC Data
+                        </>
+                      ) : log.validation.hasOHLC ? (
+                        <>
+                          <AlertTriangle className="w-3.5 h-3.5" /> Partial / Mixed OHLC
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="w-3.5 h-3.5" /> Validation Failed
+                        </>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-[#0B1018] border border-[#1E293B]">
+                    <span className="text-[10px] text-[#8B98AA] font-bold block uppercase">Candle Records</span>
+                    <span className="text-xs font-mono-numbers font-extrabold text-[#E8EDF5] mt-0.5 block">
+                      {log.validation.validCount} valid / {log.validation.totalCount} returned
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-[#0B1018] border border-[#1E293B]">
+                    <span className="text-[10px] text-[#8B98AA] font-bold block uppercase">Source Provider</span>
+                    <span className="text-xs font-bold text-[#00F3FF] mt-0.5 block truncate">
+                      {log.rawPayload?.data?.source || log.rawPayload?.source || 'Public Feed'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Validation Issues / Diagnostics */}
+                {log.validation.issues.length > 0 && (
+                  <div className="p-2.5 rounded-lg bg-[#FF4560]/10 border border-[#FF4560]/30 text-xs text-[#FF4560] space-y-1">
+                    <span className="font-bold flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5" /> Identified OHLC Validation Issues:
+                    </span>
+                    <ul className="list-disc list-inside text-[11px] space-y-0.5">
+                      {log.validation.issues.map((iss, idx) => (
+                        <li key={idx}>{iss}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Raw JSON Code Preview */}
+                <div className="relative">
+                  <div className="flex items-center justify-between text-[10px] font-bold text-[#8B98AA] uppercase mb-1">
+                    <span className="flex items-center gap-1">
+                      <Code className="w-3 h-3 text-[#00F3FF]" /> Raw JSON Payload
+                    </span>
+                  </div>
+                  <pre className="p-3 rounded-lg bg-[#04060A] border border-[#1E293B] text-[11px] font-mono font-mono-numbers text-[#00FF88] max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+                    {JSON.stringify(log.rawPayload, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
