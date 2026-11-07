@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { SUPPORTED_SYMBOLS, marketService } from './server/market/marketProviders.js';
+import { marketService } from './server/market/marketProviders.js';
 import { aiRouter } from './server/ai/aiRouter.js';
 import { backtestEngine } from './server/backtest/backtestEngine.js';
 import { marketIntelService } from './server/intel/marketIntel.js';
@@ -67,13 +67,14 @@ app.get('/api/market/symbols', async (req: Request, res: Response) => {
     const symbols = await marketService.getInstruments();
     return sendSuccess(res, symbols);
   } catch (err: any) {
-    return sendSuccess(res, SUPPORTED_SYMBOLS);
+    return sendSuccess(res, []);
   }
 });
 
 app.get('/api/market/candles', async (req: Request, res: Response) => {
   try {
-    const symbol = (req.query.symbol as string) || 'EUR/USD';
+    const symbol = (req.query.symbol as string) || '';
+    if (!symbol) return sendError(res, 'MISSING_SYMBOL', 'Symbol query parameter is required');
     const timeframe = (req.query.timeframe as Timeframe) || '5m';
     const limit = Math.min(200, Math.max(10, parseInt((req.query.limit as string) || '60', 10)));
 
@@ -86,11 +87,12 @@ app.get('/api/market/candles', async (req: Request, res: Response) => {
 
 app.get('/api/market/quote', async (req: Request, res: Response) => {
   try {
-    const symbol = (req.query.symbol as string) || 'EUR/USD';
+    const symbol = (req.query.symbol as string) || '';
+    if (!symbol) return sendError(res, 'MISSING_SYMBOL', 'Symbol query parameter is required');
     const quote = await marketService.getQuote(symbol);
     return sendSuccess(res, quote);
   } catch (err: any) {
-    return sendError(res, 'QUOTE_FETCH_ERROR', err?.message || 'Failed to fetch quote', 500);
+    return sendError(res, 'QUOTE_FETCH_ERROR', err?.message || 'Failed to fetch quote', 404);
   }
 });
 

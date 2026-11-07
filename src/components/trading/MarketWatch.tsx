@@ -96,17 +96,21 @@ export const MarketWatch: React.FC<Props> = ({
 
               <div className="text-right space-y-0.5">
                 <div className="font-mono-numbers text-xs font-bold text-[#E8EDF5]">
-                  {q
-                    ? q.price.toFixed(item.decimals)
-                    : (item.symbol.includes('JPY') ? '154.380' : item.symbol.includes('BTC') ? '92,450.00' : '1.08620')}
+                  {q ? q.price.toFixed(item.decimals) : '—'}
                 </div>
                 <div
                   className={`flex items-center justify-end gap-1 font-mono-numbers text-[11px] font-semibold ${
                     isPositive ? 'text-[#00FF88]' : 'text-[#FF4560]'
                   }`}
                 >
-                  {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                  <span>{q ? `${isPositive ? '+' : ''}${q.change24h}%` : '+0.24%'}</span>
+                  {q ? (
+                    <>
+                      {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                      <span>{`${isPositive ? '+' : ''}${q.change24h}%`}</span>
+                    </>
+                  ) : (
+                    <span className="text-[#8B98AA] font-normal text-[10px]">Pending Quote</span>
+                  )}
                 </div>
               </div>
             </button>
@@ -114,7 +118,12 @@ export const MarketWatch: React.FC<Props> = ({
         })}
 
         {filteredSymbols.length === 0 && (
-          <div className="p-6 text-center text-xs text-[#8B98AA]">No assets found matching filters.</div>
+          <div className="p-6 text-center text-xs text-[#8B98AA] space-y-2">
+            <p className="font-semibold text-[#E8EDF5]">0 Assets Discovered</p>
+            <p className="text-[11px]">
+              No accessible instruments returned by the connected market data provider. Please configure a valid API Key in the Provider Manager.
+            </p>
+          </div>
         )}
       </div>
     </div>

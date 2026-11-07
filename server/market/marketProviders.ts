@@ -1,36 +1,37 @@
 import { Candle, MarketSymbol, MarketTick, ConnectionResult, Timeframe } from '../../src/types/market.js';
 import { db } from '../storage/db.js';
+import dotenv from 'dotenv';
 
-export const SUPPORTED_SYMBOLS: MarketSymbol[] = [
-  { symbol: 'EUR/USD', name: 'Euro / US Dollar', category: 'forex', baseAsset: 'EUR', quoteAsset: 'USD', pipSize: 0.0001, decimals: 5, isOpen: true },
-  { symbol: 'GBP/USD', name: 'British Pound / US Dollar', category: 'forex', baseAsset: 'GBP', quoteAsset: 'USD', pipSize: 0.0001, decimals: 5, isOpen: true },
-  { symbol: 'USD/JPY', name: 'US Dollar / Japanese Yen', category: 'forex', baseAsset: 'USD', quoteAsset: 'JPY', pipSize: 0.01, decimals: 3, isOpen: true },
-  { symbol: 'USD/CHF', name: 'US Dollar / Swiss Franc', category: 'forex', baseAsset: 'USD', quoteAsset: 'CHF', pipSize: 0.0001, decimals: 5, isOpen: true },
-  { symbol: 'AUD/USD', name: 'Australian Dollar / US Dollar', category: 'forex', baseAsset: 'AUD', quoteAsset: 'USD', pipSize: 0.0001, decimals: 5, isOpen: true },
-  { symbol: 'USD/CAD', name: 'US Dollar / Canadian Dollar', category: 'forex', baseAsset: 'USD', quoteAsset: 'CAD', pipSize: 0.0001, decimals: 5, isOpen: true },
-  { symbol: 'NZD/USD', name: 'New Zealand Dollar / US Dollar', category: 'forex', baseAsset: 'NZD', quoteAsset: 'USD', pipSize: 0.0001, decimals: 5, isOpen: true },
-  { symbol: 'XAU/USD', name: 'Gold / US Dollar', category: 'commodity', baseAsset: 'XAU', quoteAsset: 'USD', pipSize: 0.1, decimals: 2, isOpen: true },
-  { symbol: 'BTC/USD', name: 'Bitcoin / US Dollar', category: 'crypto', baseAsset: 'BTC', quoteAsset: 'USD', pipSize: 1.0, decimals: 2, isOpen: true },
-  { symbol: 'ETH/USD', name: 'Ethereum / US Dollar', category: 'crypto', baseAsset: 'ETH', quoteAsset: 'USD', pipSize: 0.1, decimals: 2, isOpen: true },
-];
+dotenv.config();
 
-// Base reference prices for Forex / Crypto
-const REFERENCE_PRICES: Record<string, number> = {
-  'EUR/USD': 1.0862,
-  'GBP/USD': 1.2745,
-  'USD/JPY': 154.38,
-  'USD/CHF': 0.8872,
-  'AUD/USD': 0.6548,
-  'USD/CAD': 1.3910,
-  'NZD/USD': 0.5925,
-  'XAU/USD': 2684.50,
-  'BTC/USD': 92450.00,
-  'ETH/USD': 3420.00,
-};
+// Sync environment variables with stored market provider configs on server startup
+function syncEnvKeys() {
+  const twelveKey = process.env.TWELVEDATA_API_KEY;
+  const finnhubKey = process.env.FINNHUB_API_KEY;
+  const alphaKey = process.env.ALPHAVANTAGE_API_KEY;
 
-// Candle cache to preserve continuous price history across ticks
-const CANDLE_CACHE = new Map<string, Candle[]>();
-const LAST_TICK_CACHE = new Map<string, MarketTick>();
+  const td = db.marketProviders.find((p) => p.id === 'twelvedata');
+  if (td && twelveKey) {
+    td.apiKey = twelveKey;
+    td.isConfigured = true;
+    td.isActive = true;
+  }
+
+  const fh = db.marketProviders.find((p) => p.id === 'finnhub');
+  if (fh && finnhubKey) {
+    fh.apiKey = finnhubKey;
+    fh.isConfigured = true;
+    if (!td || !twelveKey) fh.isActive = true;
+  }
+
+  const av = db.marketProviders.find((p) => p.id === 'alphavantage');
+  if (av && alphaKey) {
+    av.apiKey = alphaKey;
+    av.isConfigured = true;
+  }
+}
+
+syncEnvKeys();
 
 function getTimeframeMinutes(tf: Timeframe): number {
   switch (tf) {
@@ -42,89 +43,6 @@ function getTimeframeMinutes(tf: Timeframe): number {
     case '1d': return 1440;
     default: return 5;
   }
-}
-
-/**
- * Generates or extends authentic continuous candles based on standard stochastic drift
- */
-function getOrGenerateCandles(symbol: string, timeframe: Timeframe, count: number = 60, sourceName: string): Candle[] {
-  const cacheKey = `${symbol}:${timeframe}`;
-  const now = Date.now();
-  const tfMinutes = getTimeframeMinutes(timeframe);
-  const intervalMs = tfMinutes * 60 * 1000;
-  const currentIntervalStart = Math.floor(now / intervalMs) * intervalMs;
-
-  const existing = CANDLE_CACHE.get(cacheKey);
-  const basePrice = REFERENCE_PRICES[symbol] || 1.0;
-  const volatility = symbol.includes('BTC') ? 0.004 : symbol.includes('ETH') ? 0.005 : symbol.includes('XAU') ? 0.002 : 0.0004;
-
-  if (!existing || existing.length === 0) {
-    // Generate initial realistic series of past candles
-    const candles: Candle[] = [];
-    let prevClose = basePrice;
-
-    for (let i = count - 1; i >= 0; i--) {
-      const cTime = currentIntervalStart - i * intervalMs;
-      const drift = (Math.sin(i / 5) * 0.5 + (Math.random() - 0.49)) * volatility * basePrice;
-      const open = Number(prevClose.toFixed(symbol.includes('JPY') ? 3 : symbol.includes('BTC') || symbol.includes('XAU') ? 2 : 5));
-      const close = Number((open + drift).toFixed(symbol.includes('JPY') ? 3 : symbol.includes('BTC') || symbol.includes('XAU') ? 2 : 5));
-      const wick1 = Math.random() * volatility * basePrice * 0.8;
-      const wick2 = Math.random() * volatility * basePrice * 0.8;
-      const high = Number((Math.max(open, close) + wick1).toFixed(symbol.includes('JPY') ? 3 : symbol.includes('BTC') || symbol.includes('XAU') ? 2 : 5));
-      const low = Number((Math.min(open, close) - wick2).toFixed(symbol.includes('JPY') ? 3 : symbol.includes('BTC') || symbol.includes('XAU') ? 2 : 5));
-      const volume = Math.floor(100 + Math.random() * 2000);
-
-      candles.push({
-        timestamp: cTime,
-        open,
-        high,
-        low,
-        close,
-        volume,
-        source: sourceName,
-        symbol,
-      });
-
-      prevClose = close;
-    }
-
-    CANDLE_CACHE.set(cacheKey, candles);
-    return candles;
-  }
-
-  // Update existing candles: check if current candle needs updating or new interval started
-  const lastCandle = existing[existing.length - 1];
-  if (lastCandle.timestamp === currentIntervalStart) {
-    // Within current candle interval: slight update to close, high, low
-    const tickDrift = (Math.random() - 0.495) * (volatility * 0.2) * basePrice;
-    const newClose = Number((lastCandle.close + tickDrift).toFixed(symbol.includes('JPY') ? 3 : symbol.includes('BTC') || symbol.includes('XAU') ? 2 : 5));
-    lastCandle.close = newClose;
-    lastCandle.high = Math.max(lastCandle.high, newClose);
-    lastCandle.low = Math.min(lastCandle.low, newClose);
-    lastCandle.volume = (lastCandle.volume || 100) + Math.floor(Math.random() * 5);
-  } else if (currentIntervalStart > lastCandle.timestamp) {
-    // New interval started: push a new candle
-    const open = lastCandle.close;
-    const drift = (Math.random() - 0.495) * (volatility * 0.5) * basePrice;
-    const close = Number((open + drift).toFixed(symbol.includes('JPY') ? 3 : symbol.includes('BTC') || symbol.includes('XAU') ? 2 : 5));
-    const high = Math.max(open, close) + Math.random() * volatility * basePrice * 0.3;
-    const low = Math.min(open, close) - Math.random() * volatility * basePrice * 0.3;
-
-    existing.push({
-      timestamp: currentIntervalStart,
-      open,
-      high: Number(high.toFixed(symbol.includes('JPY') ? 3 : symbol.includes('BTC') || symbol.includes('XAU') ? 2 : 5)),
-      low: Number(low.toFixed(symbol.includes('JPY') ? 3 : symbol.includes('BTC') || symbol.includes('XAU') ? 2 : 5)),
-      close,
-      volume: 150 + Math.floor(Math.random() * 50),
-      source: sourceName,
-      symbol,
-    });
-
-    if (existing.length > 200) existing.shift();
-  }
-
-  return existing;
 }
 
 async function fetchWithExponentialBackoff<T>(
@@ -150,11 +68,14 @@ async function fetchWithExponentialBackoff<T>(
 
 export class MarketProviderService {
   /**
-   * Fetches dynamic list of accessible instruments from the active market provider
+   * Fetches dynamic list of accessible instruments from the active market provider via API
+   * ZERO hardcoded or simulated fallbacks.
    */
   public async getInstruments(): Promise<MarketSymbol[]> {
+    syncEnvKeys();
     const activeProvider = db.marketProviders.find((p) => p.isActive) || db.marketProviders[0];
 
+    // 1. Twelve Data API Instrument Discovery
     if (activeProvider.id === 'twelvedata' && activeProvider.apiKey) {
       try {
         const url = `https://api.twelvedata.com/forex_pairs?apikey=${activeProvider.apiKey}`;
@@ -162,7 +83,7 @@ export class MarketProviderService {
         if (res.ok) {
           const data = await res.json();
           if (data.data && Array.isArray(data.data)) {
-            const fetched: MarketSymbol[] = data.data.slice(0, 50).map((pair: any) => {
+            const fetched: MarketSymbol[] = data.data.slice(0, 60).map((pair: any) => {
               const symbol = pair.symbol.includes('/') ? pair.symbol : `${pair.symbol.slice(0, 3)}/${pair.symbol.slice(3)}`;
               return {
                 symbol,
@@ -179,10 +100,11 @@ export class MarketProviderService {
           }
         }
       } catch (err) {
-        console.warn('Twelve Data forex_pairs fetch failed, using default symbol set:', err);
+        console.warn('Twelve Data forex_pairs fetch error:', err);
       }
     }
 
+    // 2. Finnhub API Instrument Discovery
     if (activeProvider.id === 'finnhub' && activeProvider.apiKey) {
       try {
         const url = `https://finnhub.io/api/v1/forex/symbol?exchange=oanda&token=${activeProvider.apiKey}`;
@@ -190,7 +112,7 @@ export class MarketProviderService {
         if (res.ok) {
           const raw = await res.json();
           if (Array.isArray(raw)) {
-            const fetched: MarketSymbol[] = raw.slice(0, 50).map((item: any) => {
+            const fetched: MarketSymbol[] = raw.slice(0, 60).map((item: any) => {
               const symbol = item.displaySymbol || item.symbol.replace('OANDA:', '').replace('_', '/');
               return {
                 symbol,
@@ -207,21 +129,51 @@ export class MarketProviderService {
           }
         }
       } catch (err) {
-        console.warn('Finnhub forex symbol fetch failed, using default symbol set:', err);
+        console.warn('Finnhub forex symbol fetch error:', err);
       }
     }
 
-    return SUPPORTED_SYMBOLS;
+    // 3. Binance Public Spot API Instrument Discovery (Public fallback for crypto)
+    try {
+      const res = await fetch('https://api.binance.com/api/v3/exchangeInfo');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.symbols && Array.isArray(data.symbols)) {
+          const usdtPairs = data.symbols
+            .filter((s: any) => s.status === 'TRADING' && s.quoteAsset === 'USDT')
+            .slice(0, 40)
+            .map((s: any) => {
+              const symbol = `${s.baseAsset}/USD`;
+              return {
+                symbol,
+                name: `${s.baseAsset} / US Dollar`,
+                category: 'crypto' as const,
+                baseAsset: s.baseAsset,
+                quoteAsset: 'USD',
+                pipSize: s.baseAsset === 'BTC' || s.baseAsset === 'ETH' ? 0.1 : 0.0001,
+                decimals: s.baseAsset === 'BTC' ? 2 : 4,
+                isOpen: true,
+              };
+            });
+          if (usdtPairs.length > 0) return usdtPairs;
+        }
+      }
+    } catch (err) {
+      console.warn('Binance exchangeInfo fetch error:', err);
+    }
+
+    return [];
   }
 
   /**
-   * Fetches real candles from active provider with exponential backoff retry and fallback handling
+   * Fetches real candles from active provider with exponential backoff retry and strict validation.
+   * ZERO dummy/simulated data generation.
    */
   public async getCandles(symbol: string, timeframe: Timeframe, limit: number = 60): Promise<{ candles: Candle[]; source: string; status: string }> {
+    syncEnvKeys();
     const activeProvider = db.marketProviders.find((p) => p.isActive) || db.marketProviders[0];
-    const sourceName = activeProvider?.name || 'Global FX/Crypto Public Feed';
 
-    // If Twelve Data is active and has an API key configured, attempt to fetch from Twelve Data with exponential backoff
+    // 1. Twelve Data Provider
     if (activeProvider.id === 'twelvedata' && activeProvider.apiKey) {
       try {
         const interval = timeframe === '1m' ? '1min' : timeframe === '5m' ? '5min' : timeframe === '15m' ? '15min' : timeframe === '1h' ? '1h' : timeframe === '4h' ? '4h' : '1day';
@@ -234,7 +186,7 @@ export class MarketProviderService {
           const data = await res.json();
           if (data.code && data.code >= 400) throw new Error(`Twelve Data API error: ${data.message || 'Unknown error'}`);
           if (!data.values || !Array.isArray(data.values)) throw new Error('Invalid Twelve Data response format');
-          
+
           return data.values.map((v: any) => ({
             timestamp: new Date(v.datetime).getTime(),
             open: parseFloat(v.open),
@@ -248,13 +200,56 @@ export class MarketProviderService {
         }, 3, 500);
 
         return { candles, source: 'Twelve Data', status: 'LIVE' };
-      } catch (err) {
-        console.warn('Twelve Data request failed after exponential backoff retries, falling back:', err);
+      } catch (err: any) {
+        console.warn('Twelve Data request failed:', err?.message || err);
+        return { candles: [], source: 'Twelve Data', status: 'ERROR' };
       }
     }
 
-    // For public feed or fallback, fetch Binance public data if crypto/forex cross with exponential backoff
-    if (symbol.includes('BTC') || symbol.includes('ETH')) {
+    // 2. Finnhub Provider
+    if (activeProvider.id === 'finnhub' && activeProvider.apiKey) {
+      try {
+        const cleanSymbol = symbol.replace('/', '_');
+        const resMap: Record<string, string> = { '1m': '1', '5m': '5', '15m': '15', '1h': '60', '4h': '240', '1d': 'D' };
+        const resolution = resMap[timeframe] || '5';
+        const nowSec = Math.floor(Date.now() / 1000);
+        const tfSec = getTimeframeMinutes(timeframe) * 60;
+        const fromSec = nowSec - limit * tfSec;
+        const url = `https://finnhub.io/api/v1/forex/candle?symbol=OANDA:${cleanSymbol}&resolution=${resolution}&from=${fromSec}&to=${nowSec}&token=${activeProvider.apiKey}`;
+
+        const candles = await fetchWithExponentialBackoff(async () => {
+          const res = await fetch(url, { headers: { 'User-Agent': 'Obsidian-Quant-AI' } });
+          if (!res.ok) throw new Error(`Finnhub HTTP status ${res.status}`);
+          const data = await res.json();
+          if (data.s !== 'ok' || !Array.isArray(data.c)) throw new Error(`Finnhub candle error: ${data.s || 'no data'}`);
+
+          const list: Candle[] = [];
+          for (let i = 0; i < data.c.length; i++) {
+            list.push({
+              timestamp: data.t[i] * 1000,
+              open: data.o[i],
+              high: data.h[i],
+              low: data.l[i],
+              close: data.c[i],
+              volume: data.v ? data.v[i] : null,
+              source: 'Finnhub Market API',
+              symbol,
+            });
+          }
+          return list;
+        }, 3, 400);
+
+        return { candles, source: 'Finnhub Market API', status: 'LIVE' };
+      } catch (err: any) {
+        console.warn('Finnhub request failed:', err?.message || err);
+        return { candles: [], source: 'Finnhub Market API', status: 'ERROR' };
+      }
+    }
+
+    // 3. Binance Public Spot Feed (Crypto pairs ONLY: BTC/USD, ETH/USD, SOL/USD, etc.)
+    const isCrypto = symbol.includes('BTC') || symbol.includes('ETH') || symbol.includes('SOL') || symbol.includes('BNB') || symbol.includes('XRP') || symbol.includes('DOGE') || symbol.includes('ADA') || symbol.includes('AVAX') || symbol.includes('DOT');
+
+    if (isCrypto || activeProvider.id === 'realtime_public') {
       try {
         const binancePair = symbol.replace('/', '').replace('USD', 'USDT');
         const intervalMap: Record<string, string> = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' };
@@ -274,31 +269,34 @@ export class MarketProviderService {
             low: parseFloat(k[3]),
             close: parseFloat(k[4]),
             volume: parseFloat(k[5]),
-            source: 'Binance Public Stream',
+            source: 'Binance Live Feed',
             symbol,
           })) as Candle[];
-        }, 3, 400);
+        }, 2, 300);
 
-        return { candles, source: 'Binance Public Stream', status: 'LIVE' };
-      } catch (err) {
-        console.warn('Binance public klines failed after exponential backoff retries, using continuous feed:', err);
+        return { candles, source: 'Binance Live Feed', status: 'LIVE' };
+      } catch (err: any) {
+        console.warn(`Binance klines request for ${symbol} failed:`, err?.message || err);
       }
     }
 
-    // High quality real-time continuous market feed
-    const candles = getOrGenerateCandles(symbol, timeframe, limit, sourceName);
+    // ZERO dummy fallback: if no real API candles can be fetched for forex without API key, return empty array with DISCONNECTED status
     return {
-      candles,
-      source: sourceName,
-      status: 'LIVE_FEED',
+      candles: [],
+      source: activeProvider.name,
+      status: 'DISCONNECTED',
     };
   }
 
   /**
-   * Fetches latest quote/tick for a symbol
+   * Fetches latest quote/tick for a symbol strictly from real candle data.
    */
   public async getQuote(symbol: string): Promise<MarketTick> {
     const candlesResult = await this.getCandles(symbol, '1m', 2);
+    if (!candlesResult.candles || candlesResult.candles.length === 0) {
+      throw new Error(`No real market quote available for ${symbol} from connected provider.`);
+    }
+
     const last = candlesResult.candles[candlesResult.candles.length - 1];
     const prev = candlesResult.candles[0];
 
@@ -309,9 +307,9 @@ export class MarketProviderService {
 
     const bid = Number((currentPrice - halfSpread).toFixed(symbol.includes('JPY') ? 3 : symbol.includes('BTC') || symbol.includes('XAU') ? 2 : 5));
     const ask = Number((currentPrice + halfSpread).toFixed(symbol.includes('JPY') ? 3 : symbol.includes('BTC') || symbol.includes('XAU') ? 2 : 5));
-    const change24h = Number((((currentPrice - prev.open) / prev.open) * 100).toFixed(2));
+    const change24h = prev ? Number((((currentPrice - prev.open) / prev.open) * 100).toFixed(2)) : 0;
 
-    const tick: MarketTick = {
+    return {
       symbol,
       price: currentPrice,
       bid,
@@ -323,9 +321,6 @@ export class MarketProviderService {
       change24h,
       source: candlesResult.source,
     };
-
-    LAST_TICK_CACHE.set(symbol, tick);
-    return tick;
   }
 
   /**
@@ -335,7 +330,8 @@ export class MarketProviderService {
     const start = Date.now();
     try {
       if (providerId === 'twelvedata') {
-        if (!apiKey) {
+        const key = apiKey || process.env.TWELVEDATA_API_KEY;
+        if (!key) {
           return {
             success: false,
             latencyMs: 0,
@@ -344,7 +340,7 @@ export class MarketProviderService {
             timestamp: Date.now(),
           };
         }
-        const res = await fetch(`https://api.twelvedata.com/stocks?country=US&apikey=${apiKey}`);
+        const res = await fetch(`https://api.twelvedata.com/stocks?country=US&apikey=${key}`);
         const latency = Date.now() - start;
         const data = await res.json();
         if (data.code && data.code >= 400) {
@@ -367,7 +363,8 @@ export class MarketProviderService {
       }
 
       if (providerId === 'finnhub') {
-        if (!apiKey) {
+        const key = apiKey || process.env.FINNHUB_API_KEY;
+        if (!key) {
           return {
             success: false,
             latencyMs: 0,
@@ -376,7 +373,7 @@ export class MarketProviderService {
             timestamp: Date.now(),
           };
         }
-        const res = await fetch(`https://finnhub.io/api/v1/forex/symbol?exchange=oanda&token=${apiKey}`);
+        const res = await fetch(`https://finnhub.io/api/v1/forex/symbol?exchange=oanda&token=${key}`);
         const latency = Date.now() - start;
         if (!res.ok) {
           return {
@@ -421,3 +418,4 @@ export class MarketProviderService {
 }
 
 export const marketService = new MarketProviderService();
+

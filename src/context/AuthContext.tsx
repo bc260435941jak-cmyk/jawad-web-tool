@@ -125,8 +125,8 @@ const defaultCredentials: UserCredentialsData = {
 
 const defaultPreferences: UserPreferencesData = {
   defaultTimeframe: '5m',
-  defaultSymbol: 'EUR/USD',
-  watchlist: ['EUR/USD', 'GBP/USD', 'USD/JPY', 'XAU/USD', 'BTC/USD'],
+  defaultSymbol: '',
+  watchlist: [],
   maxStake: 250,
   dailyLossLimit: 500,
   maxOpenPositions: 5,

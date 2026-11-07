@@ -84,19 +84,14 @@ export const BacktestWorkspace: React.FC = () => {
         {/* Inputs Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 pt-4">
           <div>
-            <label className="block text-[11px] font-semibold uppercase text-[#8B98AA] mb-1">Asset</label>
-            <select
+            <label className="block text-[11px] font-semibold uppercase text-[#8B98AA] mb-1">Asset Symbol</label>
+            <input
+              type="text"
               value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
+              onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+              placeholder="Enter symbol (e.g. BTC/USD)"
               className="w-full bg-[#101722] border border-[#1E293B] rounded-lg px-3 py-2 text-xs font-bold text-[#E8EDF5] focus:outline-none focus:border-[#00F3FF]"
-            >
-              <option value="EUR/USD">EUR/USD</option>
-              <option value="GBP/USD">GBP/USD</option>
-              <option value="USD/JPY">USD/JPY</option>
-              <option value="AUD/USD">AUD/USD</option>
-              <option value="XAU/USD">XAU/USD</option>
-              <option value="BTC/USD">BTC/USD</option>
-            </select>
+            />
           </div>
 
           <div>

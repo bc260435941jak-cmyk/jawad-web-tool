@@ -147,18 +147,7 @@ export const SignalBrain: React.FC<Props> = ({
                   </option>
                 ))
               ) : (
-                <>
-                  <option value="EUR/USD">EUR/USD (Euro / US Dollar)</option>
-                  <option value="GBP/USD">GBP/USD (British Pound / USD)</option>
-                  <option value="USD/JPY">USD/JPY (US Dollar / Yen)</option>
-                  <option value="USD/CHF">USD/CHF (US Dollar / Swiss Franc)</option>
-                  <option value="AUD/USD">AUD/USD (Aussie / US Dollar)</option>
-                  <option value="USD/CAD">USD/CAD (US Dollar / CAD)</option>
-                  <option value="NZD/USD">NZD/USD (Kiwi / US Dollar)</option>
-                  <option value="XAU/USD">XAU/USD (Gold Spot)</option>
-                  <option value="BTC/USD">BTC/USD (Bitcoin)</option>
-                  <option value="ETH/USD">ETH/USD (Ethereum)</option>
-                </>
+                <option value="">No provider assets discovered</option>
               )}
             </select>
           </div>

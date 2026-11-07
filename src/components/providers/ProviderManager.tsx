@@ -589,17 +589,13 @@ export const ProviderManager: React.FC = () => {
               <label className="block text-[11px] font-semibold text-[#8B98AA] uppercase mb-1">
                 Target Symbol
               </label>
-              <select
+              <input
+                type="text"
                 value={diagSymbol}
-                onChange={(e) => setDiagSymbol(e.target.value)}
+                onChange={(e) => setDiagSymbol(e.target.value.toUpperCase())}
+                placeholder="e.g. BTC/USD"
                 className="w-full bg-[#101722] border border-[#1E293B] rounded-lg px-3 py-1.5 text-xs font-bold text-[#E8EDF5] focus:outline-none focus:border-[#00F3FF]"
-              >
-                <option value="EUR/USD">EUR/USD</option>
-                <option value="GBP/USD">GBP/USD</option>
-                <option value="USD/JPY">USD/JPY</option>
-                <option value="XAU/USD">XAU/USD</option>
-                <option value="BTC/USD">BTC/USD</option>
-              </select>
+              />
             </div>
 
             <div>

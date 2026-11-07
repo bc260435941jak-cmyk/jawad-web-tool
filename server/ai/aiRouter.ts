@@ -83,26 +83,11 @@ export class AIRouterService {
   /**
    * Generates technical signal using Candle-Close prediction engine and completed candles
    */
-  private ensureCandles(symbol: string, candles?: Candle[]): Candle[] {
-    if (candles && candles.length >= 5) {
-      return candles;
+  private validateMarketCandles(candles?: Candle[]): Candle[] {
+    if (!candles || !Array.isArray(candles) || candles.length < 10) {
+      throw new Error('Insufficient candles for reliable candle-close prediction. Please ensure market data provider is connected and returning OHLC data.');
     }
-    const padded: Candle[] = [];
-    const base = 1.0862;
-    const now = Date.now();
-    for (let i = 25; i >= 0; i--) {
-      padded.push({
-        timestamp: now - i * 300000,
-        open: base + (i * 0.0001),
-        high: base + (i * 0.0001) + 0.0008,
-        low: base + (i * 0.0001) - 0.0008,
-        close: base + (i * 0.0001) + 0.0003,
-        volume: 1200,
-        source: 'Obsidian Robust Feed',
-        symbol,
-      });
-    }
-    return padded;
+    return candles;
   }
 
   private generateCandleClosePredictionSignal(
@@ -110,7 +95,7 @@ export class AIRouterService {
     reasonSuffix: string = 'Obsidian Candle-Close Prediction Engine'
   ): AISignalResult {
     const { symbol, timeframe, mode } = options;
-    const candles = this.ensureCandles(symbol, options.candles);
+    const candles = this.validateMarketCandles(options.candles);
 
     // Candle-Close distinction:
     // - Current candle: candles[candles.length - 1] (still forming)
@@ -273,7 +258,7 @@ export class AIRouterService {
    */
   public async generateSignal(options: SignalRequestOptions): Promise<AISignalResult> {
     const { symbol, timeframe, mode, enableThinking = false, strategy } = options;
-    const candles = this.ensureCandles(symbol, options.candles);
+    const candles = this.validateMarketCandles(options.candles);
 
     const currentPrice = candles[candles.length - 1].close;
     const indicators = computeTechnicalIndicators(candles);

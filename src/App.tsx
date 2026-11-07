@@ -54,7 +54,7 @@ export default function App() {
 
   // Market & Trading State
   const [symbols, setSymbols] = useState<MarketSymbol[]>([]);
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('EUR/USD');
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const [timeframe, setTimeframe] = useState<Timeframe>('5m');
   const [tradingMode, setTradingMode] = useState<TradingMode>('binary');
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -101,14 +101,21 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch initial symbols
+  // Fetch initial symbols from connected provider API
   useEffect(() => {
     const initSymbols = async () => {
       try {
         const syms = await api.getSymbols();
         setSymbols(syms);
+        if (syms && syms.length > 0) {
+          setSelectedSymbol((prev) => (prev && syms.some((s) => s.symbol === prev) ? prev : syms[0].symbol));
+        } else {
+          setSelectedSymbol('');
+        }
       } catch (err) {
         console.error('Error fetching symbols:', err);
+        setSymbols([]);
+        setSelectedSymbol('');
       }
     };
     initSymbols();
@@ -116,12 +123,19 @@ export default function App() {
 
   // Fetch candles on symbol or timeframe change
   const fetchCandleData = useCallback(async () => {
+    if (!selectedSymbol) {
+      setCandles([]);
+      setSourceName('No Market Data Provider Active');
+      return;
+    }
     try {
       const data = await api.getCandles(selectedSymbol, timeframe, 60);
-      setCandles(data.candles);
-      setSourceName(data.source);
+      setCandles(data.candles || []);
+      setSourceName(data.source || 'Market Data Feed');
     } catch (err) {
       console.error('Error fetching candles:', err);
+      setCandles([]);
+      setSourceName('Provider Disconnected / Error');
     }
   }, [selectedSymbol, timeframe]);
 
@@ -133,6 +147,10 @@ export default function App() {
 
   // Fetch live quotes for selected symbol and watchlist
   const fetchQuotes = useCallback(async () => {
+    if (!selectedSymbol) {
+      setCurrentQuote(null);
+      return;
+    }
     try {
       const q = await api.getQuote(selectedSymbol);
       setCurrentQuote(q);
@@ -146,6 +164,7 @@ export default function App() {
       setAccount(posData.account);
     } catch (err) {
       console.error('Error fetching quote:', err);
+      setCurrentQuote(null);
     }
   }, [selectedSymbol]);
 
@@ -200,12 +219,12 @@ export default function App() {
           <div className="hidden lg:flex items-center gap-6 text-xs">
             {/* Active Symbol & Price */}
             <div className="flex items-center gap-3 bg-[#0B1018] px-3.5 py-1.5 rounded-lg border border-[#1E293B]">
-              <span className="font-extrabold text-[#E8EDF5]">{selectedSymbol}</span>
+              <span className="font-extrabold text-[#E8EDF5]">{selectedSymbol || 'No Asset Selected'}</span>
               <span className="font-mono-numbers font-black text-sm text-[#00FF88]">
-                {currentQuote ? currentQuote.price.toFixed(selectedSymbol.includes('JPY') ? 3 : selectedSymbol.includes('BTC') ? 2 : 5) : '1.08620'}
+                {currentQuote ? currentQuote.price.toFixed(selectedSymbol.includes('JPY') ? 3 : selectedSymbol.includes('BTC') ? 2 : 5) : '—'}
               </span>
               <span className={`font-mono-numbers text-[11px] font-bold ${(currentQuote?.change24h ?? 0) >= 0 ? 'text-[#00FF88]' : 'text-[#FF4560]'}`}>
-                {(currentQuote?.change24h ?? 0) >= 0 ? '+' : ''}{currentQuote?.change24h ?? '+0.24'}%
+                {currentQuote && typeof currentQuote.change24h === 'number' ? `${currentQuote.change24h >= 0 ? '+' : ''}${currentQuote.change24h}%` : '—'}
               </span>
             </div>
 
