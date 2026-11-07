@@ -1,0 +1,6 @@
+{
+  "name": "Obsidian Quant AI – Pro Master Edition",
+  "description": "Professional institutional dark market-analysis terminal with Binary Quant Engine, Forex AI Suite, Backtest Engine, Market Intel, and multi-provider AI signal routing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

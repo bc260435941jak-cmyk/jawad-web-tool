@@ -1,0 +1,279 @@
+OBSIDIAN QUANT AI – PRO MASTER EDITION
+MASTER CODING AGENT PROMPT (V2.1)
+Prepared: 7 November 2026
+
+ROLE
+Act as a principal full-stack architect, React/TypeScript engineer, market-data engineer, quantitative developer, AI integration engineer, security engineer, UX designer and QA lead. Build a complete, maintainable, responsive web application—not just a mockup.
+
+PROJECT GOAL
+Build Obsidian Quant AI – Pro Master Edition: a dark professional market-analysis terminal with:
+1) Binary Quant Engine (analysis + paper trading)
+2) Professional Forex AI Suite (analysis + paper trading)
+3) Backtest Quant Engine
+4) Market Intel & Sentiment
+5) Market Provider Manager
+6) AI Provider Manager
+7) Security, account settings and PWA features
+
+IMPORTANT REALITY / SAFETY RULES
+- No fake market prices, fake candles, fake news, mock AI responses, fabricated latency, fake connected status or fake broker order confirmations.
+- Free API access is limited and can change. Do not promise unlimited or high quotas.
+- Never evade rate limits by rotating keys/accounts. Respect provider terms, user entitlements and data licensing.
+- Free API data may be delayed, incomplete, limited to certain symbols, or not suitable for commercial redistribution. Display provider, data timestamp, freshness and plan limitations.
+- If data is missing/stale/invalid or all APIs are down, show DATA UNAVAILABLE / WAIT. Do not fabricate a signal.
+- AI is advisory and must never directly execute an order.
+- Paper trading is the default. Real-money trading must be disabled unless an official supported broker adapter, valid user account, explicit consent, risk controls and broker acknowledgement are implemented.
+- Do not claim 100% bug-free software. Build in phases, run tests, fix failures, and report remaining limitations honestly.
+
+TECH STACK
+Frontend: React + Vite + TypeScript, Tailwind CSS, Lucide React.
+Charting: TradingView Lightweight Charts with required license attribution.
+Backend: Node.js + TypeScript using Express/Fastify or Vercel-compatible API routes.
+Market stream: WebSocket with reconnection and resynchronization.
+Database: PostgreSQL + Prisma.
+Optional cache/pub-sub: Redis.
+Validation: Zod.
+Tests: Vitest + integration tests + Playwright E2E.
+Deployment: Vercel frontend/API where appropriate; separate persistent worker/managed service if required for long-running market streams.
+PWA: manifest, install support, static-shell caching, update prompt, online/offline state.
+
+ROOT STRUCTURE
+Keep Vite project root compliant:
+package.json, package-lock.json, vite.config.ts, tsconfig.json, index.html, src/, public/, api/, server/, prisma/, tests/, docs/, .env.example, .gitignore, README.md.
+Use clear separation:
+- src = frontend
+- server = backend/domain services
+- api = deployment entrypoints
+- adapters = external provider implementations
+Never put secrets in frontend code.
+
+UI/UX
+Use a professional institutional dark terminal:
+- Background #04060A
+- Panels #0B1018 / #101722
+- Cyan #00F3FF
+- Bullish/paper-buy #00FF88
+- Bearish/sell #FF4560
+- Primary text #E8EDF5
+- Secondary text #8B98AA
+- Inter + JetBrains Mono
+Desktop: left watchlist, central chart, right AI/order panel, bottom positions/history.
+Tablet: 2-column responsive layout.
+Mobile: single-column, collapsible watchlist, accessible controls and bottom navigation.
+Avoid clipping and page-wide horizontal scrolling. Include loading, empty, stale, offline, error and retry states. Do not display illustrative/mock UI prices as live.
+
+MARKET DATA PROVIDERS
+Build a pluggable MarketDataProvider adapter interface. Candidate free/low-cost providers to investigate and allow user configuration:
+- Twelve Data (Forex REST candles and possibly streaming depending on plan)
+- Finnhub (only endpoints/symbols permitted by user plan)
+- Alpha Vantage (historical FX/indicators; free limits make it unsuitable for high-frequency polling)
+- OANDA practice API (demo/practice account, not a universal free market feed)
+- Stooq or public historical CSV sources for appropriate historical/backtest use only
+- Custom user-added REST/WebSocket provider if validated and permitted
+
+Do not hardcode free quotas. Provider settings must include official documentation/pricing link and current plan note. At setup time, instruct user to verify account entitlements and real-time market coverage. Do not imply every provider supports real-time Forex WebSocket or binary broker prices.
+
+Provider interface:
+- testRest()
+- testWebSocket()
+- getSymbols()
+- getCandles(symbol, timeframe, limit)
+- subscribe(symbol, callback)
+
+Normalize candles:
+{ timestamp: UTC epoch milliseconds, open, high, low, close, volume|null, source, symbol }
+Validate finite OHLC and low <= open/close <= high. Never invent volume. Store source and received timestamps. Show stale status. Never silently mix data providers.
+
+FREE AI PROVIDER ROUTER
+Create a provider adapter abstraction for:
+- Google AI Studio Gemini API
+- OpenRouter free model routes (model IDs configurable; :free routes are rate-limited)
+- Groq free plan models (model-specific limits)
+- Mistral free/experimental access when currently available
+- Other OpenAI-compatible providers added by the user
+
+Do not hardcode a model as permanently free. Provider/model availability and quotas change. Show official documentation/rate-limit link and allow user to configure provider/model/API key. Never claim unlimited quota.
+Use a backend-only API key. Never put API keys in frontend bundles, localStorage, source control or .env.example.
+Respect provider Retry-After. For 429/503, cooldown the provider, reduce request frequency, and optionally use a different provider only if the user configured and authorized it. Do not rotate keys to evade limits. If all providers fail, return AI_UNAVAILABLE; never fake a signal.
+AI request includes:
+- symbol and timeframe
+- market status
+- candle history and live price timestamp
+- RSI-14, SMA-20, EMA-20, MACD, ATR
+- data provider and source timestamp
+- compact context and user-selected strategy
+Never send provider keys or broker secrets to the model.
+Validate output with Zod. Direction allowed: BUY, SELL, WAIT. Status allowed: STRONG, CONDITIONAL, WAIT, REJECTED. Include reasoning, invalidation conditions, risk notes, data timestamp and model ID.
+Confidence must be called “model-reported confidence” unless calibrated on out-of-sample data. It is not a win probability. Reject hallucinated price values, malformed output, stale data and missing fields.
+
+GEMINI CONFIGURATION
+Use server-side GEMINI_API_KEY and configurable GEMINI_MODEL. Do not hardcode a retired model name. Check the currently available model ID in Google AI Studio before deployment. Use the official Google API documentation and rate-limit dashboard. Free tier data usage/privacy terms differ from paid tier; disclose this to the user.
+
+BINARY QUANT ENGINE
+Features:
+- EUR/USD, GBP/USD, USD/JPY, USD/CHF, AUD/USD, USD/CAD, NZD/USD and provider-supported symbols
+- Timeframes 1m, 5m, 15m
+- Live candlestick chart and countdown
+- SMA20, EMA20, RSI14, MACD, ATR, Bollinger Bands
+- AI signal panel with WAIT/CONDITIONAL status and reasoning
+- Stake presets $5/$10/$25/$50/$100 and custom amount
+- Duration selector
+- Payout only when verified from a provider/broker contract
+- Paper CALL/UP and PUT/DOWN buttons
+- Open paper trades, settlement and history
+- Max stake, max open trades and daily-loss controls
+Payout formula: win profit = stake * payout rate; total return = stake + win profit; loss = stake. Do not hardcode 95% as universal.
+No real binary execution unless a documented, authorized broker API exists and legality/availability is checked for the user’s jurisdiction.
+
+FOREX AI SUITE
+- Independent Forex symbols and timeframes 15m, 1h, 4h, 1d
+- Chart, bid/ask/spread only if actual provider returns it
+- Entry, stop loss, take profit, pip distance, position sizing and risk/reward
+- BUY/LONG and SELL/SHORT paper orders by default
+- Instrument-specific tick size, pip value, contract size, account currency and precision
+- Validate SL/TP direction and broker constraints
+Real order execution requires official broker API, user authorization, confirmation, risk checks and broker receipt. Never simulate a successful live order.
+
+LIVE CHART / WEBSOCKET
+REST loads historical candles. WebSocket supplies ticks. Validate/deduplicate ticks, aggregate OHLC by candle interval, update chart and indicators. Finalize previous candle when interval changes. Handle late/out-of-order ticks.
+States: CONNECTING, CONNECTED, RECONNECTING, STALE, DISCONNECTED, ERROR.
+Implement heartbeat, timeout, exponential reconnect, resubscribe, REST resync after reconnect, duplicate detection, bounded retry and last-update timestamp.
+Vercel serverless connections may close; do not rely on in-memory state or immortal function processes. Use managed persistent worker/pub-sub when necessary.
+
+BACKTEST ENGINE
+- Historical symbol/timeframe/date range
+- strategy and indicator parameters
+- entry/exit, SL/TP, binary expiry, spread/fees/slippage
+- no look-ahead bias or future leakage
+- data integrity checks and missing candle detection
+- out-of-sample and walk-forward tests
+- metrics: total trades, win rate, net P/L, profit factor, max drawdown, expectancy, average win/loss and streaks
+- trade-by-trade report, equity curve and CSV export
+Label as historical simulation, not a promise of future profitability.
+
+MARKET INTEL
+Use actual licensed news/calendar APIs. Include source, publication time and link. Sentiment values: BULLISH, BEARISH, NEUTRAL, MIXED, UNKNOWN. Do not fabricate news. If unavailable, show NEWS UNAVAILABLE. AI sentiment must not automatically place orders.
+
+PROVIDER MANAGER
+UI: provider name/type, REST URL, WebSocket URL, key entry, test REST, test WS, latency, status, last data time, docs link, save/edit/delete/activate.
+Test connection must really test endpoint and report actual result. A connection test does not prove real-time market access or broker execution permission.
+SSRF protection is mandatory: validate protocols, TLS, host allowlists, DNS/redirects, block private/localhost/metadata IPs except explicit safe local dev, limit time/response size, and do not send credentials to untrusted URLs.
+
+SECURITY
+- authentication, authorization, MFA
+- secure cookies and headers
+- CORS allowlist
+- CSRF where applicable
+- XSS/SQL injection prevention
+- SSRF protection
+- rate limiting and request validation
+- encrypted provider secrets at rest
+- redact secrets from logs
+- session management and audit logs
+- user-level data isolation
+- dependency/security scan
+- WebSocket auth
+- idempotency keys and duplicate order protection
+- transaction-safe order records
+- backups and monitoring
+Use Decimal/NUMERIC for prices and money; avoid careless floating-point financial math.
+
+API ROUTES
+GET /api/health
+GET /api/market/providers
+POST /api/market/providers/test
+POST /api/market/providers
+POST /api/market/providers/active
+GET /api/market/symbols
+GET /api/market/candles
+GET /api/market/quote
+POST /api/ai/signal
+GET /api/ai/signals
+POST /api/backtest/run
+GET /api/backtest/:id
+POST /api/paper/orders
+GET /api/paper/positions
+GET /api/paper/history
+GET/POST /api/settings
+Use consistent success/error response envelopes, request IDs, Zod validation and rate limits.
+
+DATABASE
+PostgreSQL + Prisma. Tables/entities: users, sessions, preferences, api_providers, encrypted_credentials, provider_health_logs, symbols, candles (only if persistence needed), ai_signals, ai_logs, strategies, backtest_jobs/results/trades, paper_accounts/orders/positions/history, broker_accounts/orders, notifications, audit_logs. Use migrations, foreign keys, indexes, user isolation and Decimal types.
+
+PWA/DEPLOYMENT
+Vite root files and dist output. Vercel: build command npm run build; output dist. Use supported API routes. Persistent market stream may require a separate worker host.
+.env.example contains variable names only:
+NODE_ENV, APP_URL, DATABASE_URL, REDIS_URL, GEMINI_API_KEY, GEMINI_MODEL, MARKET_PROVIDER, MARKET_API_KEY, AUTH_SECRET, ENCRYPTION_KEY, BROKER_TRADING_ENABLED=false.
+Never commit real credentials.
+PWA: manifest, installable icon, service worker, update notification, cached static shell, online/offline indicator. Offline mode must disable live signal and order execution.
+
+TESTING / QUALITY
+Create unit tests for RSI/SMA/EMA/MACD/ATR and payout/risk math.
+Integration tests for providers, APIs, database and AI adapter.
+WebSocket tests for reconnect, duplicate and stale ticks.
+AI tests for malformed output, missing fields, 429, 503 and timeout.
+Backtest tests for look-ahead and fee calculations.
+Paper order tests for validation and duplicate prevention.
+Security tests for SSRF, auth, key leakage and access control.
+Playwright tests for navigation, chart controls, mobile and end-to-end workflow.
+
+Required scripts:
+npm run typecheck
+npm run lint
+npm run test
+npm run test:integration
+npm run test:e2e
+npm run build
+
+RELEASE CHECKLIST
+- clean npm install
+- typecheck/lint/unit/integration/E2E pass
+- build succeeds with no ENOENT
+- health endpoint works
+- real provider connection tested
+- candles verified against provider source
+- WebSocket updates and reconnect verified
+- stale-data UI works
+- AI schema validation and quota fallback tested
+- no secrets in browser bundle/repository/logs
+- paper trading lifecycle works
+- responsive desktop/tablet/mobile verified
+- no critical console errors
+- README, provider setup and deployment docs complete
+
+DEVELOPMENT PROCESS
+Do not dump the entire codebase in one untested response. Implement in milestones:
+1 scaffold/UI
+2 backend/auth/database
+3 market provider adapters
+4 live charts and indicators
+5 AI router
+6 binary/forex paper engines
+7 backtesting
+8 market intelligence
+9 security and QA
+10 deployment
+At each milestone:
+- build and run tests
+- fix errors before moving on
+- update README and progress report
+- commit code
+- maintain known limitations and TODOs
+- never claim complete without verification
+
+DELIVERABLES
+1. Complete source code repository
+2. Responsive UI with real chart integration
+3. Backend API and database schema/migrations
+4. Market provider adapters and provider manager
+5. Multi-provider AI router and Gemini integration
+6. Binary/Forex paper trading modules
+7. Backtest and market intelligence modules
+8. Automated tests
+9. .env.example without secrets
+10. README with exact Windows CMD/PowerShell setup steps
+11. Vercel deployment guide
+12. Provider/AI setup guide with official documentation links
+13. Final QA report listing passed tests, limitations, and features that require paid access or user API keys
+
+Start by inspecting the environment and creating the project scaffold. Then implement Phase 1 and report exact files, commands and test results. Do not ask the user to manually code. Ask only for essential missing credentials or choices; never request API keys in chat—tell the user to enter them locally in the secure settings panel.

@@ -1,0 +1,16 @@
+{
+  "name": "Obsidian Quant AI – Pro Master Edition",
+  "short_name": "Obsidian Quant",
+  "description": "Institutional dark market-analysis terminal with Binary Quant & Forex AI Suite",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#04060A",
+  "theme_color": "#04060A",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192' fill='%2304060A'><rect width='192' height='192' rx='32' fill='%230B1018'/><polygon points='96 24 24 64 96 104 168 64' fill='none' stroke='%2300F3FF' stroke-width='8'/><polyline points='24 128 96 168 168 128' fill='none' stroke='%2300FF88' stroke-width='8'/><polyline points='24 96 96 136 168 96' fill='none' stroke='%2300F3FF' stroke-width='8'/></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}
