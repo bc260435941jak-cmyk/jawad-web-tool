@@ -120,7 +120,7 @@ const defaultCredentials: UserCredentialsData = {
   encryptedAiKeys: {},
   activeMarketProvider: 'realtime_public',
   activeAiProvider: 'gemini',
-  activeAiModel: 'gemini-3.8-flash',
+  activeAiModel: 'gemini-2.5-flash',
 };
 
 const defaultPreferences: UserPreferencesData = {
@@ -204,7 +204,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             encryptedAiKeys: data.encryptedAiKeys || {},
             activeMarketProvider: data.activeMarketProvider || 'realtime_public',
             activeAiProvider: data.activeAiProvider || 'gemini',
-            activeAiModel: data.activeAiModel || 'gemini-3.8-flash',
+            activeAiModel: data.activeAiModel && !data.activeAiModel.includes('3.8') ? data.activeAiModel : 'gemini-2.5-flash',
           });
         }
       },

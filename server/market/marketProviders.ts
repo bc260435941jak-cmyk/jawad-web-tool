@@ -33,6 +33,21 @@ function syncEnvKeys() {
 
 syncEnvKeys();
 
+const FIAT_CURRENCIES = new Set([
+  'EUR', 'GBP', 'USD', 'JPY', 'CHF', 'AUD', 'CAD', 'NZD',
+  'DKK', 'SEK', 'NOK', 'SGD', 'HKD', 'TRY', 'ZAR', 'MXN',
+  'PLN', 'CZK', 'HUF', 'ILS', 'THB', 'MYR', 'IDR', 'PHP',
+  'INR', 'BRL', 'CLP', 'COP', 'KRW', 'CNY', 'XAU', 'XAG',
+]);
+
+function isCryptoSymbol(symbol: string): boolean {
+  if (!symbol) return false;
+  const parts = symbol.split('/');
+  const base = parts[0] ? parts[0].toUpperCase() : '';
+  if (!base) return false;
+  return !FIAT_CURRENCIES.has(base);
+}
+
 function getTimeframeMinutes(tf: Timeframe): number {
   switch (tf) {
     case '1m': return 1;
@@ -54,13 +69,15 @@ async function fetchWithExponentialBackoff<T>(
   while (true) {
     try {
       return await fn();
-    } catch (error) {
+    } catch (error: any) {
       attempt++;
-      if (attempt > maxRetries) {
+      const msg = String(error?.message || error);
+      const isClientError = msg.includes('403') || msg.includes('401') || msg.includes('400') || msg.includes('404');
+      if (attempt > maxRetries || isClientError) {
         throw error;
       }
       const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 150;
-      console.warn(`Market data fetch attempt ${attempt} failed, retrying with exponential backoff in ${Math.round(delay)}ms...`);
+      console.warn(`Market data fetch attempt ${attempt} failed, retrying in ${Math.round(delay)}ms...`);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -173,7 +190,39 @@ export class MarketProviderService {
     syncEnvKeys();
     const activeProvider = db.marketProviders.find((p) => p.isActive) || db.marketProviders[0];
 
-    // 1. Twelve Data Provider
+    // 1. Binance Public Spot Feed (Crypto pairs: LTC/USD, BTC/USD, ETH/USD, SOL/USD, etc.)
+    if (isCryptoSymbol(symbol) || activeProvider.id === 'realtime_public') {
+      try {
+        const binancePair = symbol.replace('/', '').replace('USD', 'USDT');
+        const intervalMap: Record<string, string> = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' };
+        const interval = intervalMap[timeframe] || '5m';
+        const url = `https://api.binance.com/api/v3/klines?symbol=${binancePair}&interval=${interval}&limit=${limit}`;
+
+        const candles = await fetchWithExponentialBackoff(async () => {
+          const res = await fetch(url, { headers: { 'User-Agent': 'Obsidian-Quant-AI' } });
+          if (!res.ok) throw new Error(`Binance HTTP status ${res.status}`);
+          const raw = await res.json();
+          if (!Array.isArray(raw)) throw new Error('Invalid Binance response format');
+
+          return raw.map((k: any) => ({
+            timestamp: k[0],
+            open: parseFloat(k[1]),
+            high: parseFloat(k[2]),
+            low: parseFloat(k[3]),
+            close: parseFloat(k[4]),
+            volume: parseFloat(k[5]),
+            source: 'Binance Live Feed',
+            symbol,
+          })) as Candle[];
+        }, 2, 300);
+
+        return { candles, source: 'Binance Live Feed', status: 'LIVE' };
+      } catch (err: any) {
+        console.warn(`Binance klines request for ${symbol} failed:`, err?.message || err);
+      }
+    }
+
+    // 2. Twelve Data Provider (Forex / Stocks)
     if (activeProvider.id === 'twelvedata' && activeProvider.apiKey) {
       try {
         const interval = timeframe === '1m' ? '1min' : timeframe === '5m' ? '5min' : timeframe === '15m' ? '15min' : timeframe === '1h' ? '1h' : timeframe === '4h' ? '4h' : '1day';
@@ -206,7 +255,7 @@ export class MarketProviderService {
       }
     }
 
-    // 2. Finnhub Provider
+    // 3. Finnhub Provider (Forex)
     if (activeProvider.id === 'finnhub' && activeProvider.apiKey) {
       try {
         const cleanSymbol = symbol.replace('/', '_');
@@ -237,7 +286,7 @@ export class MarketProviderService {
             });
           }
           return list;
-        }, 3, 400);
+        }, 2, 400);
 
         return { candles, source: 'Finnhub Market API', status: 'LIVE' };
       } catch (err: any) {
@@ -246,41 +295,7 @@ export class MarketProviderService {
       }
     }
 
-    // 3. Binance Public Spot Feed (Crypto pairs ONLY: BTC/USD, ETH/USD, SOL/USD, etc.)
-    const isCrypto = symbol.includes('BTC') || symbol.includes('ETH') || symbol.includes('SOL') || symbol.includes('BNB') || symbol.includes('XRP') || symbol.includes('DOGE') || symbol.includes('ADA') || symbol.includes('AVAX') || symbol.includes('DOT');
-
-    if (isCrypto || activeProvider.id === 'realtime_public') {
-      try {
-        const binancePair = symbol.replace('/', '').replace('USD', 'USDT');
-        const intervalMap: Record<string, string> = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' };
-        const interval = intervalMap[timeframe] || '5m';
-        const url = `https://api.binance.com/api/v3/klines?symbol=${binancePair}&interval=${interval}&limit=${limit}`;
-
-        const candles = await fetchWithExponentialBackoff(async () => {
-          const res = await fetch(url, { headers: { 'User-Agent': 'Obsidian-Quant-AI' } });
-          if (!res.ok) throw new Error(`Binance HTTP status ${res.status}`);
-          const raw = await res.json();
-          if (!Array.isArray(raw)) throw new Error('Invalid Binance response format');
-
-          return raw.map((k: any) => ({
-            timestamp: k[0],
-            open: parseFloat(k[1]),
-            high: parseFloat(k[2]),
-            low: parseFloat(k[3]),
-            close: parseFloat(k[4]),
-            volume: parseFloat(k[5]),
-            source: 'Binance Live Feed',
-            symbol,
-          })) as Candle[];
-        }, 2, 300);
-
-        return { candles, source: 'Binance Live Feed', status: 'LIVE' };
-      } catch (err: any) {
-        console.warn(`Binance klines request for ${symbol} failed:`, err?.message || err);
-      }
-    }
-
-    // ZERO dummy fallback: if no real API candles can be fetched for forex without API key, return empty array with DISCONNECTED status
+    // ZERO dummy fallback: if no real API candles can be fetched, return empty array with DISCONNECTED status
     return {
       candles: [],
       source: activeProvider.name,

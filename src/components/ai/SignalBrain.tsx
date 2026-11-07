@@ -221,7 +221,7 @@ export const SignalBrain: React.FC<Props> = ({
 
           <div className="text-xs text-[#8B98AA] flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-[#00FF88]" />
-            <span>AI Model: {enableThinking ? 'gemini-4-argon (Thinking Level: High)' : 'gemini-3.8-flash'}</span>
+            <span>AI Model: {enableThinking ? 'gemini-2.5-pro (High Reasoning)' : 'gemini-2.5-flash'}</span>
           </div>
         </div>
 

@@ -39,7 +39,7 @@ export class AIRouterService {
         });
 
         const res = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-2.5-flash',
           contents: 'Ping test. Reply with OK.',
         });
 
@@ -278,7 +278,8 @@ export class AIRouterService {
             httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
           });
 
-          const modelName = enableThinking ? 'gemini-4-argon' : (provider.activeModel || 'gemini-3.8-flash');
+          const requestedModel = provider.activeModel && (provider.activeModel.startsWith('gemini-2') || provider.activeModel.startsWith('gemini-1')) ? provider.activeModel : 'gemini-2.5-flash';
+          const modelName = enableThinking ? 'gemini-2.5-pro' : requestedModel;
           const thinkingConfig = enableThinking ? { thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH } } : undefined;
 
           const systemPrompt = `You are the lead quantitative candle-prediction analyst of Obsidian Quant AI – Pro Master Edition.
@@ -378,11 +379,17 @@ Output strictly valid JSON matching this schema:
           }
         } catch (err: any) {
           const errMessage = err?.message || '';
-          console.info(`AI Provider ${provider.name} unavailable (${errMessage}). Using Obsidian quantitative fallback engine.`);
+          const cleanReason = errMessage.includes('PERMISSION_DENIED') || errMessage.includes('403')
+            ? 'Free tier billing required for Google Gemini project'
+            : errMessage.includes('429') || errMessage.includes('RESOURCE_EXHAUSTED')
+            ? 'Quota exceeded for Gemini model'
+            : 'Gemini endpoint response delayed';
+
+          console.log(`[AIRouter] ${provider.name} status: ${cleanReason}. Utilizing Obsidian Quantitative Engine.`);
           provider.lastTestResult = {
             success: false,
             latencyMs: 0,
-            message: `API Quota / Permission restricted (403/429). Using Obsidian Quantitative Fallback Engine.`,
+            message: `${cleanReason}. Utilizing Obsidian Quantitative Engine.`,
             timestamp: Date.now(),
           };
         }
